@@ -1,0 +1,4 @@
+customer_id,name,segment,region,signup_date
+101,Alice,enterprise,West,2023-01-10
+102,Bob,smb,East,2023-03-22
+103,Carol,enterprise,North,2023-06-15
