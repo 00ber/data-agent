@@ -143,6 +143,24 @@ async def run(
                 "role": "assistant",
                 "content": f"Plan: {code_step.plan}\nCode: {code_step.code}\nResult: {result.output}",
             })
+            artifact_count = len(emitted)
+            if artifact_count > 0:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"Step produced {artifact_count} artifact(s) visible to the user. "
+                        "If you have displayed all the results needed to answer the question, "
+                        "call final_answer() with a brief summary. Otherwise, continue."
+                    ),
+                })
+            else:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Step succeeded. Continue with the next step, or call "
+                        "final_answer() if you have enough to answer the question."
+                    ),
+                })
 
     # If we exit the loop without final_answer, record in history
     session.history.append({

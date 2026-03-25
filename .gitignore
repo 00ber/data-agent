@@ -1,6 +1,9 @@
 # Archive (reference only)
 archive/
 
+# Superpowers brainstorming
+.superpowers/
+
 # Frontend build output
 ui/dist/
 ui/node_modules/

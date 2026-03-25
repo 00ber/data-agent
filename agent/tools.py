@@ -121,15 +121,15 @@ class Tools:
     def group_by(
         self,
         table: str | pd.DataFrame,
-        by: str,
+        by: str | list[str],
         column: str,
         agg: str,
     ) -> pd.DataFrame:
-        """Group by a column and aggregate another.
+        """Group by one or more columns and aggregate another.
 
         Args:
             table: Table name or DataFrame.
-            by: Column to group by.
+            by: Column name or list of column names to group by.
             column: Column to aggregate.
             agg: Aggregation — sum, mean, count, min, max, median, std.
 
@@ -137,7 +137,9 @@ class Tools:
             Aggregated DataFrame.
         """
         df = self._resolve(table)
-        self._validate_column(df, by)
+        by_cols = [by] if isinstance(by, str) else by
+        for col in by_cols:
+            self._validate_column(df, col)
         self._validate_column(df, column)
 
         if agg not in self.AGGREGATIONS:
@@ -146,11 +148,12 @@ class Tools:
                 f"Supported: {', '.join(sorted(self.AGGREGATIONS))}"
             )
 
-        grouped = df.groupby(by, as_index=False)[column].agg(agg)
+        grouped = df.groupby(by_cols, as_index=False)[column].agg(agg)
 
+        by_label = ", ".join(by_cols)
         self._emit_artifact(
             "table",
-            f"{agg}({column}) by {by}",
+            f"{agg}({column}) by {by_label}",
             self._table_data(grouped),
         )
         return grouped

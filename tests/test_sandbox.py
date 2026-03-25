@@ -141,3 +141,50 @@ class TestExecuteErrors:
         assert result.is_error
         assert "ValueError" in result.output
         assert "bad input" in result.output
+
+
+class TestVariablePersistence:
+    def test_variables_persist_across_calls(self):
+        env = {}
+        execute("x = 42", env)
+        result = execute("print(x)", env)
+
+        assert not result.is_error
+        assert "42" in result.output
+
+    def test_dataframe_persists_across_calls(self):
+        import pandas as pd
+
+        env = {"pd": pd}
+        execute("df = pd.DataFrame({'a': [1, 2, 3]})", env)
+        result = execute("print(len(df))", env)
+
+        assert not result.is_error
+        assert "3" in result.output
+
+    def test_tool_results_persist(self):
+        def fake_group():
+            return "grouped_data"
+
+        env = {"fake_group": fake_group}
+        execute("result = fake_group()", env)
+        result = execute("print(result)", env)
+
+        assert not result.is_error
+        assert "grouped_data" in result.output
+
+    def test_original_env_vars_not_clobbered(self):
+        env = {"x": 10}
+        execute("y = x + 5", env)
+        result = execute("print(x, y)", env)
+
+        assert not result.is_error
+        assert "10" in result.output
+        assert "15" in result.output
+
+    def test_last_expr_var_cleaned_up(self):
+        """The internal _RESULT_VAR should not leak into env across calls."""
+        env = {}
+        execute("1 + 2", env)  # Captured as last expression
+
+        assert "sandbox_last_expr" not in env

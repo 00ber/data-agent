@@ -136,6 +136,18 @@ class TestGroupBy:
 
         assert len(result) == 2
 
+    def test_group_by_multiple_columns(self, tools):
+        result = tools.group_by("orders", ["category", "region"], "revenue", "sum")
+
+        assert "category" in result.columns
+        assert "region" in result.columns
+        assert "revenue" in result.columns
+        assert len(result) > 2  # More groups than single-column
+
+    def test_group_by_list_validates_each_column(self, tools):
+        with pytest.raises(ValueError, match="Column 'fake' not found"):
+            tools.group_by("orders", ["category", "fake"], "revenue", "sum")
+
 
 class TestSort:
     def test_ascending(self, tools):

@@ -19,10 +19,21 @@ You have access to:
 
 Write code that:
 1. Uses tool functions for standard operations (filter, group_by, sort, join)
-2. Uses show_chart(), show_table(), show_stat() to display results
+2. Uses show_chart(), show_table(), show_stat() to display FINAL results only
 3. Calls final_answer() with your conclusion when done
 
-Every tool call produces a visible artifact. Use tools for clarity.
+Variables you create persist across steps. You can build up results incrementally:
+- Step 1: joined = join("orders", "customers", on="customer_id")
+- Step 2: grouped = group_by(joined, "region", "revenue", "mean")
+- Step 3: show_chart(grouped, kind="bar", title="Avg Revenue by Region")
+
+IMPORTANT: show_chart(), show_table(), show_stat() produce visible artifacts shown to the user.
+Use them ONLY for final results you want the user to see — never for debugging or intermediate checks.
+To inspect intermediate data, use print() instead.
+
+IMPORTANT: After displaying your final results, you MUST call final_answer() with a brief summary.
+Every step that does not end with final_answer() causes the loop to continue.
+
 For derived metrics (ratios, z-scores, custom calculations), write pandas directly.
 """
 

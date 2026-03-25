@@ -115,12 +115,12 @@ def execute(code: str, env: dict) -> SandboxResult:
             is_error=True,
         )
 
-    namespace = {**env, "__builtins__": _make_builtins()}
+    env["__builtins__"] = _make_builtins()
     stdout = io.StringIO()
 
     try:
         with contextlib.redirect_stdout(stdout):
-            exec(compiled.code, namespace)
+            exec(compiled.code, env)
     except FinalAnswer:
         raise
     except Exception as exc:
@@ -128,9 +128,11 @@ def execute(code: str, env: dict) -> SandboxResult:
             output=f"{type(exc).__name__}: {exc}",
             is_error=True,
         )
+    finally:
+        env.pop("__builtins__", None)
 
     output = stdout.getvalue()
-    last_value = namespace.get(_RESULT_VAR)
+    last_value = env.pop(_RESULT_VAR, None)
 
     parts = []
     if output:
