@@ -23,7 +23,7 @@ class CodeStep(BaseModel):
     code: str
 
 
-async def _openai_llm(
+async def _call_llm(
     messages: list[dict], *, model: str, temperature: float
 ) -> CodeStep:
     """Call OpenAI with structured output to get a CodeStep."""
@@ -75,7 +75,7 @@ async def run(
     """
     if llm is None:
         async def llm(messages, **kwargs):
-            return await _openai_llm(
+            return await _call_llm(
                 messages,
                 model=session.config.model,
                 temperature=session.config.temperature,

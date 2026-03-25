@@ -10,7 +10,7 @@ Read and follow `ENGINEERING.md` — it governs all code in this repo. Key manda
 
 Analytics Agent — an AI-powered data analysis tool. A **coding agent** where the LLM writes Python code that calls validated tool functions in a RestrictedPython sandbox. Tools are artifact producers (every tool emits a visible artifact). Events stream via SSE to the frontend.
 
-**Status:** Active redesign. Old code archived in `archive/`. New code being built per `docs/IMPLEMENTATION_PLAN.md`.
+**Status:** Backend complete (agent + API). Old code archived in `archive/`. Frontend redesign pending (`docs/UI_DESIGN.md`).
 
 ## Design Docs
 
@@ -32,7 +32,7 @@ pytest                            # All
 pytest tests/test_sandbox.py      # Single file
 pytest tests/test_tools.py::TestFilter  # Single test
 
-# Backend (after Phase 4)
+# Backend
 uvicorn api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
