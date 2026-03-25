@@ -1,150 +1,201 @@
 import pandas as pd
 import pytest
 
-from agent.agent import run, CodeStep
-from agent.events import Event, FinalAnswer
-from agent.session import Session
+from agent.agent import Agent
+from agent.environment import Environment
+from agent.llm import CodeStep
+from agent.memory import Memory
+from agent.sandbox import ExecutionSandbox
+from agent.tools import Tools
 
 
-def make_fake_llm(responses: list[CodeStep]):
-    """Create a fake LLM callable that returns predetermined responses."""
-    iterator = iter(responses)
+class FakeLLM:
+    def __init__(self, responses: list[CodeStep]) -> None:
+        self._responses = iter(responses)
+        self.calls: list[list[dict[str, str]]] = []
 
-    async def fake_llm(messages, **kwargs):
-        return next(iterator)
-
-    return fake_llm
-
-
-class TestCodeStep:
-    def test_has_plan_and_code(self):
-        step = CodeStep(plan="Analyze revenue", code="print(1)")
-
-        assert step.plan == "Analyze revenue"
-        assert step.code == "print(1)"
+    async def generate(self, messages: list[dict[str, str]]) -> CodeStep:
+        self.calls.append([message.copy() for message in messages])
+        return next(self._responses)
 
 
-class TestRunSingleStep:
-    @pytest.mark.asyncio
-    async def test_yields_thinking_event(self):
-        session = Session(tables={"sales": pd.DataFrame({"a": [1]})})
-        fake_llm = make_fake_llm([
-            CodeStep(plan="Thinking...", code="final_answer('done')"),
-        ])
+def make_agent(
+    llm: FakeLLM,
+    *,
+    inputs: dict[str, pd.DataFrame] | None = None,
+    memory: Memory | None = None,
+    environment: Environment | None = None,
+    max_steps: int = 10,
+) -> Agent:
+    if environment is None:
+        environment = Environment(
+            inputs=inputs or {},
+            sandbox=ExecutionSandbox(),
+        )
 
-        events = [e async for e in run(session, "test", llm=fake_llm)]
+    return Agent(
+        llm=llm,
+        memory=memory or Memory(),
+        environment=environment,
+        tools=Tools(),
+        max_steps=max_steps,
+    )
 
-        thinking_events = [e for e in events if e.kind == "thinking"]
-        assert len(thinking_events) == 1
-        assert thinking_events[0].data["text"] == "Thinking..."
 
-    @pytest.mark.asyncio
-    async def test_yields_code_event(self):
-        session = Session(tables={"sales": pd.DataFrame({"a": [1]})})
-        fake_llm = make_fake_llm([
-            CodeStep(plan="Plan", code="final_answer('done')"),
-        ])
+class TestAgent:
+    def test_rejects_non_positive_max_steps(self):
+        llm = FakeLLM([])
 
-        events = [e async for e in run(session, "test", llm=fake_llm)]
-
-        code_events = [e for e in events if e.kind == "code"]
-        assert len(code_events) == 1
-        assert "final_answer" in code_events[0].data["text"]
+        with pytest.raises(ValueError, match="Max steps must be a positive integer."):
+            make_agent(llm, max_steps=0)
 
     @pytest.mark.asyncio
-    async def test_yields_answer_event_on_final_answer(self):
-        session = Session(tables={"sales": pd.DataFrame({"a": [1]})})
-        fake_llm = make_fake_llm([
-            CodeStep(plan="Plan", code="final_answer('Revenue is $100')"),
-        ])
+    async def test_run_emits_thinking_code_and_answer_events(self):
+        llm = FakeLLM(
+            [CodeStep(plan="Answer directly", code="final_answer('done')")]
+        )
+        agent = make_agent(llm)
 
-        events = [e async for e in run(session, "test", llm=fake_llm)]
+        events = [event async for event in agent.run("What happened?")]
 
-        answer_events = [e for e in events if e.kind == "answer"]
-        assert len(answer_events) == 1
-        assert answer_events[0].data["text"] == "Revenue is $100"
-
-    @pytest.mark.asyncio
-    async def test_terminates_on_final_answer(self):
-        session = Session(tables={"sales": pd.DataFrame({"a": [1]})})
-        fake_llm = make_fake_llm([
-            CodeStep(plan="Plan", code="final_answer('done')"),
-            CodeStep(plan="Should not run", code="print('bad')"),
-        ])
-
-        events = [e async for e in run(session, "test", llm=fake_llm)]
-
-        thinking_events = [e for e in events if e.kind == "thinking"]
-        assert len(thinking_events) == 1  # Only first step ran
-
-
-class TestRunMultiStep:
-    @pytest.mark.asyncio
-    async def test_error_feeds_back_to_next_step(self):
-        session = Session(tables={"sales": pd.DataFrame({"a": [1]})})
-        fake_llm = make_fake_llm([
-            CodeStep(plan="Try bad code", code="1 / 0"),
-            CodeStep(plan="Fix it", code="final_answer('fixed')"),
-        ])
-
-        events = [e async for e in run(session, "test", llm=fake_llm)]
-
-        error_events = [e for e in events if e.kind == "error"]
-        assert len(error_events) == 1
-        assert "ZeroDivisionError" in error_events[0].data["text"]
-
-        answer_events = [e for e in events if e.kind == "answer"]
-        assert len(answer_events) == 1
+        assert [event.kind for event in events] == ["thinking", "code", "answer"]
+        assert events[0].data == {"text": "Answer directly"}
+        assert events[1].data == {"text": "final_answer('done')"}
+        assert events[2].data == {"text": "done"}
 
     @pytest.mark.asyncio
-    async def test_max_steps_respected(self):
-        session = Session()
-        session.config.max_steps = 2
-        session.tables["x"] = pd.DataFrame({"a": [1]})
-        # LLM never calls final_answer
-        fake_llm = make_fake_llm([
-            CodeStep(plan="Step 1", code="print('one')"),
-            CodeStep(plan="Step 2", code="print('two')"),
-            CodeStep(plan="Step 3", code="print('three')"),
-        ])
+    async def test_run_emits_artifacts_before_terminal_answer(self, orders_df):
+        llm = FakeLLM(
+            [
+                CodeStep(
+                    plan="Group by category and finish",
+                    code=(
+                        'grouped = group_by("orders", "category", "revenue", "sum")\n'
+                        "final_answer('done')"
+                    ),
+                )
+            ]
+        )
+        agent = make_agent(llm, inputs={"orders": orders_df})
 
-        events = [e async for e in run(session, "test", llm=fake_llm)]
+        events = [event async for event in agent.run("Summarize revenue by category.")]
 
-        thinking_events = [e for e in events if e.kind == "thinking"]
-        assert len(thinking_events) == 2  # Stopped at max_steps
+        assert [event.kind for event in events] == ["thinking", "code", "artifact", "answer"]
+        assert events[2].data["kind"] == "table"
+        assert events[3].data["text"] == "done"
 
-
-class TestRunArtifacts:
     @pytest.mark.asyncio
-    async def test_tool_artifacts_emitted_as_events(self):
-        session = Session(tables={"sales": pd.DataFrame({
-            "category": ["A", "B", "A"],
-            "revenue": [100, 200, 300],
-        })})
-        fake_llm = make_fake_llm([
-            CodeStep(
-                plan="Group and answer",
-                code='grouped = group_by(sales, "category", "revenue", "sum")\nfinal_answer("done")',
-            ),
-        ])
+    async def test_run_retries_after_error_with_step_feedback(self):
+        llm = FakeLLM(
+            [
+                CodeStep(plan="Try bad code", code="1 / 0"),
+                CodeStep(plan="Fix it", code="final_answer('fixed')"),
+            ]
+        )
+        agent = make_agent(llm)
 
-        events = [e async for e in run(session, "test", llm=fake_llm)]
+        events = [event async for event in agent.run("Fix the issue.")]
 
-        artifact_events = [e for e in events if e.kind == "artifact"]
-        assert len(artifact_events) >= 1
-        assert artifact_events[0].data["kind"] == "table"
+        assert [event.kind for event in events] == [
+            "thinking",
+            "code",
+            "error",
+            "thinking",
+            "code",
+            "answer",
+        ]
+        assert len(llm.calls) == 2
 
+        second_call = llm.calls[1]
+        assert any(
+            message["role"] == "assistant"
+            and "Plan: Try bad code" in message["content"]
+            and "Code: 1 / 0" in message["content"]
+            for message in second_call
+        )
+        assert any(
+            message["role"] == "user"
+            and "ZeroDivisionError" in message["content"]
+            and "Please fix the issue and try again." in message["content"]
+            for message in second_call
+        )
 
-class TestRunHistory:
     @pytest.mark.asyncio
-    async def test_history_accumulates(self):
-        session = Session(tables={"x": pd.DataFrame({"a": [1]})})
-        fake_llm = make_fake_llm([
-            CodeStep(plan="Plan", code="final_answer('done')"),
-        ])
+    async def test_run_stops_at_max_steps_and_emits_error(self):
+        llm = FakeLLM(
+            [
+                CodeStep(plan="Step 1", code="print('one')"),
+                CodeStep(plan="Step 2", code="print('two')"),
+                CodeStep(plan="Step 3", code="print('three')"),
+            ]
+        )
+        agent = make_agent(llm, max_steps=2)
 
-        _ = [e async for e in run(session, "What is x?", llm=fake_llm)]
+        events = [event async for event in agent.run("Keep going.")]
 
-        assert len(session.history) >= 2  # At least user message + assistant
-        assert session.history[0]["role"] == "user"
-        assert "What is x?" in session.history[0]["content"]
+        assert [event.kind for event in events] == [
+            "thinking",
+            "code",
+            "result",
+            "thinking",
+            "code",
+            "result",
+            "error",
+        ]
+        assert events[-1].data == {
+            "text": "Reached maximum steps without a final answer."
+        }
+        assert len(llm.calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_run_records_memory_and_final_answer(self):
+        llm = FakeLLM(
+            [CodeStep(plan="Inspect and answer", code="final_answer('West wins')")]
+        )
+        memory = Memory()
+        agent = make_agent(llm, memory=memory)
+
+        _ = [event async for event in agent.run("Who wins?")]
+
+        assert memory.conversation_messages() == [
+            {"role": "user", "content": "Who wins?"},
+            {"role": "assistant", "content": "West wins"},
+        ]
+        assert memory.final_answers == ["West wins"]
+        assert memory.step_history == [
+            memory.step_history[0],
+        ]
+        assert memory.step_history[0].plan == "Inspect and answer"
+        assert memory.step_history[0].code == "final_answer('West wins')"
+        assert memory.step_history[0].output is None
+        assert memory.step_history[0].is_error is False
+
+    @pytest.mark.asyncio
+    async def test_reuses_memory_and_environment_across_turns(self):
+        llm = FakeLLM(
+            [
+                CodeStep(
+                    plan="Store a value",
+                    code="saved_total = 7\nfinal_answer('Saved total.')",
+                ),
+                CodeStep(
+                    plan="Use prior workspace",
+                    code="final_answer(str(saved_total))",
+                ),
+            ]
+        )
+        memory = Memory()
+        environment = Environment(inputs={}, sandbox=ExecutionSandbox())
+        agent = make_agent(llm, memory=memory, environment=environment)
+
+        first_events = [event async for event in agent.run("Store the total.")]
+        second_events = [event async for event in agent.run("What total did you store?")]
+
+        assert first_events[-1].data == {"text": "Saved total."}
+        assert second_events[-1].data == {"text": "7"}
+        assert environment.workspace["saved_total"] == 7
+
+        second_call = llm.calls[1]
+        assert {"role": "user", "content": "Store the total."} in second_call
+        assert {"role": "assistant", "content": "Saved total."} in second_call
+        assert {"role": "user", "content": "What total did you store?"} in second_call

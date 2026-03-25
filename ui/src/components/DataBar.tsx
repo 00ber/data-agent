@@ -13,17 +13,23 @@ export default function DataBar() {
     .join(' \u00B7 ')
 
   return (
-    <button
-      onClick={toggleDataPanel}
-      className="flex items-center justify-between w-full px-4 py-2 text-sm
-                 text-text-secondary border-b border-border hover:bg-surface-alt transition-colors"
-    >
-      <span className="truncate">{summary}</span>
-      {dataPanelOpen ? (
-        <ChevronUp className="w-4 h-4 shrink-0" />
-      ) : (
-        <ChevronDown className="w-4 h-4 shrink-0" />
-      )}
-    </button>
+    <div className="border-b border-border/80 bg-[rgba(255,252,247,0.72)]">
+      <button
+        onClick={toggleDataPanel}
+        className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 text-left text-sm text-text-secondary transition-colors hover:bg-surface-alt/40"
+      >
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+            Loaded tables
+          </p>
+          <span className="mt-1 block truncate">{summary}</span>
+        </div>
+        {dataPanelOpen ? (
+          <ChevronUp className="h-4 w-4 shrink-0" />
+        ) : (
+          <ChevronDown className="h-4 w-4 shrink-0" />
+        )}
+      </button>
+    </div>
   )
 }

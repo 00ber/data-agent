@@ -1,18 +1,36 @@
-"""Analytics agent — coding agent that writes Python to analyze data."""
-from agent.agent import run, CodeStep
-from agent.events import Event, FinalAnswer
-from agent.loaders import load_file
-from agent.sandbox import SandboxResult
-from agent.session import AgentConfig, Artifact, Session
+"""Public package surface for the rewritten agent core."""
+
+from agent.agent import Agent
+from agent.environment import (
+    Artifact,
+    Environment,
+    ExecutionContext,
+    ExecutionResult,
+)
+from agent.events import Event, EventKind
+from agent.llm import CodeStep, LLM, OpenAILLM
+from agent.loaders import load_file, load_files, normalize_table_name
+from agent.memory import Memory, StepRecord
+from agent.sandbox import ExecutionSandbox, SandboxResult
+from agent.tools import Tools
 
 __all__ = [
-    "run",
-    "CodeStep",
-    "Event",
-    "FinalAnswer",
-    "load_file",
-    "SandboxResult",
-    "AgentConfig",
+    "Agent",
     "Artifact",
-    "Session",
+    "CodeStep",
+    "Environment",
+    "Event",
+    "EventKind",
+    "ExecutionContext",
+    "ExecutionResult",
+    "ExecutionSandbox",
+    "LLM",
+    "Memory",
+    "OpenAILLM",
+    "SandboxResult",
+    "StepRecord",
+    "Tools",
+    "load_file",
+    "load_files",
+    "normalize_table_name",
 ]

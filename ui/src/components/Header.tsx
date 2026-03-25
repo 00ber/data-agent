@@ -7,16 +7,24 @@ export default function Header() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   return (
-    <header className="flex items-center justify-between px-4 py-3 border-b border-border">
-      <h1 className="text-lg font-semibold text-text">DataAgent</h1>
+    <header className="sticky top-0 z-20 border-b border-border/80 bg-[rgba(255,252,247,0.86)] backdrop-blur-xl">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-4">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-text">DataAgent</h1>
+          <p className="mt-1 text-sm text-text-secondary">
+            Trace every step, inspect every artifact, and keep your analysis grounded.
+          </p>
+        </div>
       <button
         onClick={() => fileRef.current?.click()}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg
-                   text-text-secondary hover:bg-surface-alt transition-colors"
+        className="flex items-center gap-2 rounded-2xl border border-border bg-surface px-4 py-2.5
+                   text-sm font-medium text-text-secondary shadow-[0_10px_30px_rgba(15,23,42,0.05)]
+                   transition-colors hover:bg-surface-alt"
       >
         <Upload className="w-4 h-4" />
         Upload
       </button>
+      </div>
       <input
         ref={fileRef}
         type="file"

@@ -1,96 +1,142 @@
-"""Prompt construction from session state and tool introspection."""
+"""Prompt assembly for the agent core."""
+
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING
 
-import pandas as pd
-
-if TYPE_CHECKING:
-    from agent.tools import Tools
+from agent.environment import Environment, ExecutionResult
+from agent.llm import CodeStep
+from agent.memory import Memory
+from agent.tools import Tools
 
 SYSTEM_INSTRUCTIONS = """\
-You are an analytics agent. You answer questions about data by writing Python code.
+You are an analytics agent. Answer questions about the loaded data by writing Python code.
 
-You have access to:
-- DataFrames loaded as variables (listed below)
-- Tool functions for common operations (listed below)
-- pandas (as `pd`) and numpy (as `np`) for advanced operations
+Use the available actions when they fit the task. Use print() for intermediate
+inspection. When you have enough information, you must call final_answer() with
+a brief conclusion that states the findings directly. Do not just say that the
+answer is shown in a table or chart. State the concrete findings, including the
+most important categories, regions, rankings, or values when they matter.
+"""
 
-Write code that:
-1. Uses tool functions for standard operations (filter, group_by, sort, join)
-2. Uses show_chart(), show_table(), show_stat() to display FINAL results only
-3. Calls final_answer() with your conclusion when done
-
-Variables you create persist across steps. You can build up results incrementally:
-- Step 1: joined = join("orders", "customers", on="customer_id")
-- Step 2: grouped = group_by(joined, "region", "revenue", "mean")
-- Step 3: show_chart(grouped, kind="bar", title="Avg Revenue by Region")
-
-IMPORTANT: show_chart(), show_table(), show_stat() produce visible artifacts shown to the user.
-Use them ONLY for final results you want the user to see — never for debugging or intermediate checks.
-To inspect intermediate data, use print() instead.
-
-IMPORTANT: After displaying your final results, you MUST call final_answer() with a brief summary.
-Every step that does not end with final_answer() causes the loop to continue.
-
-For derived metrics (ratios, z-scores, custom calculations), write pandas directly.
+FINAL_ANSWER_DESCRIPTION = """\
+final_answer(answer)
+Purpose: End the run with the final user-facing answer.
+Parameters:
+- answer: Final conclusion returned to the user.
+Returns: No value.
+Emits: no artifact
+Example: final_answer("West region leads revenue growth.")
 """
 
 
 def describe_tool(method: object) -> str:
-    """Describe a tool method using its signature and docstring."""
-    sig = inspect.signature(method)
-    params = [
-        f"{name}: {getattr(p.annotation, '__name__', str(p.annotation))}"
-        if p.annotation != inspect.Parameter.empty
-        else name
-        for name, p in sig.parameters.items()
-        if name != "self"
+    """Describe one public tool method for inclusion in the system prompt."""
+
+    signature = inspect.signature(method)
+    parameter_names = [
+        name
+        for name in signature.parameters
+        if name not in {"self", "execution_context"}
     ]
-    param_str = ", ".join(params)
-    name = getattr(method, "__name__", str(method))
-    doc = inspect.getdoc(method) or ""
-    return f"{name}({param_str})\n    {doc}"
+    tool_name = getattr(method, "__name__", str(method))
+    docstring = inspect.getdoc(method) or ""
+    return f"{tool_name}({', '.join(parameter_names)})\n{docstring}"
 
 
-def describe_tables(tables: dict[str, pd.DataFrame]) -> str:
-    """Describe all loaded tables with schema info."""
-    if not tables:
-        return "No tables loaded."
+def describe_tools(tools: Tools) -> str:
+    """Describe all public tool methods that the model may call."""
 
-    parts = []
-    for name, df in tables.items():
-        cols = [f"  - {col} ({df[col].dtype})" for col in df.columns]
-        col_text = "\n".join(cols)
-        parts.append(f"{name}: {len(df)} rows, {len(df.columns)} columns\n{col_text}")
-
-    return "\n\n".join(parts)
+    return "\n\n".join(
+        describe_tool(getattr(tools, action_name))
+        for action_name in tools.ACTION_NAMES
+    )
 
 
-def build_prompt(tables: dict[str, pd.DataFrame], tools: Tools) -> str:
-    """Build the full system prompt from tables and tools."""
-    # Collect public methods (tools) from the Tools instance
-    tool_methods = [
-        getattr(tools, name)
-        for name in dir(tools)
-        if not name.startswith("_") and callable(getattr(tools, name))
-    ]
-    tool_docs = "\n\n".join(describe_tool(m) for m in tool_methods)
-    table_docs = describe_tables(tables)
+def build_system_prompt(environment: Environment, tools: Tools) -> str:
+    """Build the system prompt from environment and tool descriptions."""
 
     return f"""{SYSTEM_INSTRUCTIONS}
 
-## Available Tables
+## Input Tables
 
-{table_docs}
+Reference input tables by their unique names exactly as listed below.
 
-## Available Tools
+{environment.describe()}
 
-{tool_docs}
+## Available Actions
 
-## Variables in Scope
+{describe_tools(tools)}
 
-Tables: {', '.join(tables.keys()) if tables else 'none'}
-Libraries: pd (pandas), np (numpy)
+{FINAL_ANSWER_DESCRIPTION}
+
+## Runtime
+
+- Input tables are immutable and reset fresh on each execution step.
+- Variables you create in the workspace persist across steps.
+- After join() on tables with overlapping non-key column names, expect pandas-style suffixes such as _x and _y in the joined dataframe. Do not assume the original unsuffixed column name still exists.
+- Use show_chart(), show_table(), and show_stat() only for results you want the user to see.
+- Libraries in scope: pd (pandas), np (numpy)
 """
+
+
+def build_conversation_messages(
+    system_prompt: str,
+    memory: Memory,
+) -> list[dict[str, str]]:
+    """Build the full message list for the next LLM call."""
+
+    return [
+        {"role": "system", "content": system_prompt},
+        *memory.conversation_messages(),
+    ]
+
+
+def build_step_feedback(result: ExecutionResult) -> str:
+    """Build the follow-up user message after one execution step."""
+
+    if result.final_answer is not None:
+        raise ValueError("Step feedback should not be built for a final answer.")
+
+    if result.is_error:
+        return (
+            f"Error: {result.output}\n\n"
+            "Fix the issue and try again. Change the code or approach instead of "
+            "repeating the same failing step."
+        )
+
+    artifact_count = sum(1 for event in result.events if event.kind == "artifact")
+    if artifact_count > 0:
+        return (
+            f"Step produced {artifact_count} artifact(s) visible to the user. "
+            "If you have displayed all the results needed to answer the question, "
+            "call final_answer() and summarize the actual findings, not just that "
+            "the answer is visible. Otherwise, continue."
+        )
+
+    return (
+        "Step succeeded. Continue with the next step, or call final_answer() "
+        "if you have enough to answer the question."
+    )
+
+
+def build_step_messages(
+    code_step: CodeStep,
+    result: ExecutionResult,
+) -> list[dict[str, str]]:
+    """Build the transient assistant/user messages for one finished step."""
+
+    if result.final_answer is not None:
+        raise ValueError("Step messages should not be built for a final answer.")
+
+    assistant_lines = [
+        f"Plan: {code_step.plan}",
+        f"Code: {code_step.code}",
+    ]
+    if not result.is_error:
+        assistant_lines.append(f"Result: {result.output}")
+
+    return [
+        {"role": "assistant", "content": "\n".join(assistant_lines)},
+        {"role": "user", "content": build_step_feedback(result)},
+    ]

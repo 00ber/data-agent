@@ -13,17 +13,17 @@ export default function DataPanel() {
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          className="border-b border-border bg-surface-alt overflow-hidden"
+          className="overflow-hidden border-b border-border/80 bg-[rgba(255,252,247,0.72)]"
         >
-          <div className="px-4 py-4">
+          <div className="mx-auto max-w-6xl px-4 py-4">
             <div className="flex flex-wrap gap-4">
               {tables.map((table) => (
                 <div
                   key={table.name}
-                  className="flex-1 min-w-64 rounded-lg border border-border bg-surface p-4"
+                  className="min-w-64 flex-1 rounded-[1.5rem] border border-border bg-surface p-4 shadow-[0_16px_48px_rgba(15,23,42,0.05)]"
                 >
-                  <div className="font-medium text-text mb-1">{table.name}</div>
-                  <div className="text-xs text-text-muted mb-3">
+                  <div className="mb-1 font-medium text-text">{table.name}</div>
+                  <div className="mb-3 text-xs text-text-muted">
                     {table.rows.toLocaleString()} rows &middot; {table.columns.length} columns
                   </div>
                   <div className="flex flex-wrap gap-1.5">

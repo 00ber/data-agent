@@ -2,17 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   listDatasets,
   createSession,
-  loadSampleDataset,
+  loadDataset,
   uploadFiles,
   getTables,
   getSuggestions,
-  getArtifact,
-  streamAsk,
+  streamMessage,
 } from '../api'
 import type { AgentEvent } from '../types'
 
 const mockFetch = vi.fn()
-global.fetch = mockFetch
+globalThis.fetch = mockFetch
 
 beforeEach(() => {
   mockFetch.mockReset()
@@ -45,13 +44,13 @@ describe('createSession', () => {
   })
 })
 
-describe('loadSampleDataset', () => {
+describe('loadDataset', () => {
   it('posts to load-sample endpoint', async () => {
     const tables = [{ name: 'orders', rows: 100, columns: 5 }]
     mockFetch.mockResolvedValueOnce(jsonResponse({ tables }))
-    const result = await loadSampleDataset('s1', 'ecommerce')
+    const result = await loadDataset('s1', 'ecommerce')
     expect(mockFetch).toHaveBeenCalledWith(
-      '/api/sessions/s1/load-sample/ecommerce',
+      '/api/sessions/s1/datasets/ecommerce',
       { method: 'POST' },
     )
     expect(result).toEqual({ tables })
@@ -65,7 +64,7 @@ describe('uploadFiles', () => {
     const file = new File(['a,b\n1,2'], 'test.csv', { type: 'text/csv' })
     const result = await uploadFiles('s1', [file])
     expect(mockFetch).toHaveBeenCalledWith(
-      '/api/sessions/s1/upload',
+      '/api/sessions/s1/files',
       expect.objectContaining({ method: 'POST' }),
     )
     expect(result).toEqual({ tables })
@@ -94,16 +93,6 @@ describe('getSuggestions', () => {
   })
 })
 
-describe('getArtifact', () => {
-  it('fetches a specific artifact', async () => {
-    const artifact = { id: 'art_1', kind: 'chart', title: 'Test', data: {} }
-    mockFetch.mockResolvedValueOnce(jsonResponse(artifact))
-    const result = await getArtifact('s1', 'art_1')
-    expect(mockFetch).toHaveBeenCalledWith('/api/sessions/s1/artifacts/art_1')
-    expect(result).toEqual(artifact)
-  })
-})
-
 function makeSSEStream(chunks: string[]) {
   let i = 0
   const encoder = new TextEncoder()
@@ -119,7 +108,7 @@ function makeSSEStream(chunks: string[]) {
   })
 }
 
-describe('streamAsk', () => {
+describe('streamMessage', () => {
   it('parses SSE events and calls onEvent', async () => {
     const events: AgentEvent[] = []
     const body = makeSSEStream([
@@ -128,7 +117,7 @@ describe('streamAsk', () => {
       'event: answer\ndata: {"text":"done"}\n\n',
     ])
     mockFetch.mockResolvedValueOnce({ ok: true, body })
-    const handle = streamAsk('s1', 'test query', (e) => events.push(e))
+    streamMessage('s1', 'test query', (e) => events.push(e))
     await new Promise((r) => setTimeout(r, 50))
     expect(events).toHaveLength(3)
     expect(events[0]).toEqual({ kind: 'thinking', data: { text: 'planning' } })
@@ -143,7 +132,7 @@ describe('streamAsk', () => {
       'ing\ndata: {"text":"hi"}\n\n',
     ])
     mockFetch.mockResolvedValueOnce({ ok: true, body })
-    streamAsk('s1', 'q', (e) => events.push(e))
+    streamMessage('s1', 'q', (e) => events.push(e))
     await new Promise((r) => setTimeout(r, 50))
     expect(events).toHaveLength(1)
     expect(events[0]).toEqual({ kind: 'thinking', data: { text: 'hi' } })
@@ -152,7 +141,7 @@ describe('streamAsk', () => {
   it('returns a close function that aborts the request', async () => {
     const body = makeSSEStream([])
     mockFetch.mockResolvedValueOnce({ ok: true, body })
-    const handle = streamAsk('s1', 'q', () => {})
+    const handle = streamMessage('s1', 'q', () => {})
     expect(typeof handle.close).toBe('function')
   })
 })

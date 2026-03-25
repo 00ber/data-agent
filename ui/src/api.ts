@@ -2,7 +2,6 @@ import type {
   DatasetInfo,
   TableSummary,
   TableMeta,
-  ArtifactData,
   AgentEvent,
   EventKind,
 } from './types'
@@ -35,11 +34,11 @@ export async function createSession(
   return jsonOrThrow(res)
 }
 
-export async function loadSampleDataset(
+export async function loadDataset(
   sessionId: string,
   datasetId: string,
 ): Promise<{ tables: TableSummary[] }> {
-  const res = await fetch(`/api/sessions/${sessionId}/load-sample/${datasetId}`, {
+  const res = await fetch(`/api/sessions/${sessionId}/datasets/${datasetId}`, {
     method: 'POST',
   })
   return jsonOrThrow(res)
@@ -53,7 +52,7 @@ export async function uploadFiles(
   for (const file of files) {
     form.append('files', file)
   }
-  const res = await fetch(`/api/sessions/${sessionId}/upload`, {
+  const res = await fetch(`/api/sessions/${sessionId}/files`, {
     method: 'POST',
     body: form,
   })
@@ -76,24 +75,16 @@ export async function getSuggestions(
   return jsonOrThrow(res)
 }
 
-export async function getArtifact(
-  sessionId: string,
-  artifactId: string,
-): Promise<ArtifactData> {
-  const res = await fetch(`/api/sessions/${sessionId}/artifacts/${artifactId}`)
-  return jsonOrThrow(res)
-}
-
 // -- SSE stream -----------------------------------------------------------
 
-export function streamAsk(
+export function streamMessage(
   sessionId: string,
   message: string,
   onEvent: (event: AgentEvent) => void,
 ): { close: () => void } {
   const controller = new AbortController()
 
-  const promise = fetch(`/api/sessions/${sessionId}/ask`, {
+  const promise = fetch(`/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message }),

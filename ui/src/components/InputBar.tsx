@@ -19,36 +19,38 @@ export default function InputBar() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex items-center gap-2 px-4 py-3 border-t border-border bg-surface"
+      className="sticky bottom-0 border-t border-border/80 bg-[rgba(255,252,247,0.88)] backdrop-blur-xl"
     >
-      <input
-        type="text"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Ask about your data..."
-        disabled={streaming}
-        className="flex-1 px-3 py-2 rounded-lg border border-border bg-surface
-                   text-text placeholder:text-text-muted focus:outline-none focus:border-accent
-                   disabled:opacity-50"
-      />
-      {streaming ? (
-        <button
-          type="button"
-          onClick={stopStreaming}
-          className="p-2 rounded-lg bg-error text-white hover:bg-error/90 transition-colors"
-        >
-          <Square className="w-4 h-4" />
-        </button>
-      ) : (
-        <button
-          type="submit"
-          disabled={!text.trim()}
-          className="p-2 rounded-lg bg-accent text-white hover:bg-accent-hover
-                     transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Send className="w-4 h-4" />
-        </button>
-      )}
+      <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-4">
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Ask a question, inspect a trend, or compare a segment..."
+          disabled={streaming}
+          className="flex-1 rounded-2xl border border-border bg-surface px-4 py-3
+                     text-text shadow-[0_12px_36px_rgba(15,23,42,0.05)] placeholder:text-text-muted
+                     focus:border-accent focus:outline-none disabled:opacity-50"
+        />
+        {streaming ? (
+          <button
+            type="button"
+            onClick={stopStreaming}
+            className="rounded-2xl bg-error px-4 py-3 text-white transition-colors hover:bg-error/90"
+          >
+            <Square className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            disabled={!text.trim()}
+            className="rounded-2xl bg-accent px-4 py-3 text-white shadow-[0_12px_36px_rgba(15,118,110,0.28)]
+                       transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        )}
+      </div>
     </form>
   )
 }

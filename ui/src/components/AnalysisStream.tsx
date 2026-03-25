@@ -14,7 +14,7 @@ export default function AnalysisStream() {
   if (analyses.length === 0) return null
 
   return (
-    <div className="space-y-4">
+    <div className="w-full space-y-4">
       {analyses.map((block) => (
         <AnalysisBlock key={block.id} block={block} />
       ))}

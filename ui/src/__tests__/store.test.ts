@@ -1,16 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { create } from 'zustand'
 
 // Mock the api module before importing store
 vi.mock('../api', () => ({
   listDatasets: vi.fn(),
   createSession: vi.fn(),
-  loadSampleDataset: vi.fn(),
+  loadDataset: vi.fn(),
   uploadFiles: vi.fn(),
   getTables: vi.fn(),
   getSuggestions: vi.fn(),
-  getArtifact: vi.fn(),
-  streamAsk: vi.fn(),
+  streamMessage: vi.fn(),
 }))
 
 import * as api from '../api'
@@ -47,7 +45,7 @@ describe('createSession', () => {
 describe('loadDataset', () => {
   it('creates session if none exists, loads data, fetches tables and suggestions', async () => {
     mockedApi.createSession.mockResolvedValueOnce({ session_id: 'sess_1' })
-    mockedApi.loadSampleDataset.mockResolvedValueOnce({
+    mockedApi.loadDataset.mockResolvedValueOnce({
       tables: [{ name: 'orders', rows: 100, columns: 5 }],
     })
     mockedApi.getTables.mockResolvedValueOnce({
@@ -69,7 +67,7 @@ describe('loadDataset', () => {
 
   it('reuses existing session', async () => {
     useStore.setState({ sessionId: 'existing' })
-    mockedApi.loadSampleDataset.mockResolvedValueOnce({ tables: [] })
+    mockedApi.loadDataset.mockResolvedValueOnce({ tables: [] })
     mockedApi.getTables.mockResolvedValueOnce({ tables: [] })
     mockedApi.getSuggestions.mockResolvedValueOnce({ suggestions: [] })
 
@@ -104,7 +102,7 @@ describe('ask', () => {
   it('creates an analysis block and starts streaming', async () => {
     useStore.setState({ sessionId: 'sess_1' })
 
-    mockedApi.streamAsk.mockReturnValueOnce({ close: vi.fn() })
+    mockedApi.streamMessage.mockReturnValueOnce({ close: vi.fn() })
 
     await useStore.getState().ask('What are the trends?')
 
@@ -121,15 +119,17 @@ describe('ask', () => {
       analyses: [{
         id: 'old',
         query: 'Previous',
-        steps: [],
+        turns: [],
         artifacts: [],
+        responseArtifactIds: [],
+        pendingArtifactIds: [],
         answer: 'Answer',
         status: 'complete',
         collapsed: false,
       }],
     })
 
-    mockedApi.streamAsk.mockReturnValueOnce({ close: vi.fn() })
+    mockedApi.streamMessage.mockReturnValueOnce({ close: vi.fn() })
 
     await useStore.getState().ask('New question')
 
@@ -143,7 +143,7 @@ describe('ask', () => {
     await useStore.getState().ask('test')
 
     expect(useStore.getState().analyses).toHaveLength(0)
-    expect(mockedApi.streamAsk).not.toHaveBeenCalled()
+    expect(mockedApi.streamMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -157,8 +157,10 @@ describe('stopStreaming', () => {
       analyses: [{
         id: 'blk_1',
         query: 'test',
-        steps: [],
+        turns: [],
         artifacts: [],
+        responseArtifactIds: [],
+        pendingArtifactIds: [],
         answer: null,
         status: 'streaming',
         collapsed: false,
@@ -166,7 +168,7 @@ describe('stopStreaming', () => {
     })
 
     // Simulate that _closeStream is set
-    mockedApi.streamAsk.mockReturnValueOnce({ close: closeFn })
+    mockedApi.streamMessage.mockReturnValueOnce({ close: closeFn })
     await useStore.getState().ask('test2') // This sets _closeStream
 
     useStore.getState().stopStreaming()
@@ -181,8 +183,10 @@ describe('UI actions', () => {
       analyses: [{
         id: 'blk_1',
         query: 'test',
-        steps: [],
+        turns: [],
         artifacts: [],
+        responseArtifactIds: [],
+        pendingArtifactIds: [],
         answer: 'done',
         status: 'complete',
         collapsed: false,
@@ -212,5 +216,81 @@ describe('UI actions', () => {
 
     useStore.getState().setOverlay(null)
     expect(useStore.getState().overlay).toBeNull()
+  })
+})
+
+describe('artifact handling', () => {
+  it('keeps artifact payloads on trace steps and promotes the latest artifact batch to response artifacts', async () => {
+    useStore.setState({ sessionId: 'sess_1' })
+
+    mockedApi.getSuggestions.mockResolvedValueOnce({ suggestions: ['Follow-up'] })
+    mockedApi.streamMessage.mockImplementation((_sessionId, _message, onEvent) => {
+      onEvent({ kind: 'thinking', data: { text: 'Group revenue by segment.' } })
+      onEvent({ kind: 'code', data: { text: 'grouped = group_by(...)' } })
+      onEvent({
+        kind: 'artifact',
+        data: {
+          id: 'art_1',
+          kind: 'table',
+          title: 'Grouped revenue',
+          data: {
+            columns: ['segment', 'total'],
+            rows: [['Consumer', 1000]],
+            shape: [1, 2],
+          },
+        },
+      })
+      onEvent({ kind: 'result', data: { text: 'Displayed table' } })
+      onEvent({ kind: 'answer', data: { text: 'Consumer leads.' } })
+
+      return { close: vi.fn() }
+    })
+
+    await useStore.getState().ask('Which segment leads?')
+
+    const analysis = useStore.getState().analyses[0]!
+    expect(analysis.turns[0]!.artifacts[0]!.id).toBe('art_1')
+    expect(analysis.turns[0]!.result).toBe('Displayed table')
+    expect(analysis.responseArtifactIds).toEqual(['art_1'])
+    expect(analysis.pendingArtifactIds).toEqual([])
+    expect(analysis.answer).toBe('Consumer leads.')
+  })
+
+  it('groups one reasoning loop into one turn with thought, code, artifacts, and error', async () => {
+    useStore.setState({ sessionId: 'sess_1' })
+
+    mockedApi.streamMessage.mockImplementation((_sessionId, _message, onEvent) => {
+      onEvent({ kind: 'thinking', data: { text: 'Try a grouped return-rate calculation.' } })
+      onEvent({ kind: 'code', data: { text: 'joined = join(...)' } })
+      onEvent({
+        kind: 'artifact',
+        data: {
+          id: 'art_1',
+          kind: 'table',
+          title: 'Grouped totals',
+          data: {
+            columns: ['category', 'orders'],
+            rows: [['Furniture', 10]],
+            shape: [1, 2],
+          },
+        },
+      })
+      onEvent({ kind: 'error', data: { text: 'TypeError: unhashable type: list' } })
+
+      return { close: vi.fn() }
+    })
+
+    await useStore.getState().ask('How do returns vary?')
+
+    const analysis = useStore.getState().analyses[0]!
+    expect(analysis.turns).toHaveLength(1)
+    expect(analysis.turns[0]).toMatchObject({
+      thought: 'Try a grouped return-rate calculation.',
+      code: 'joined = join(...)',
+      result: null,
+      error: 'TypeError: unhashable type: list',
+    })
+    expect(analysis.turns[0]!.artifacts).toHaveLength(1)
+    expect(analysis.responseArtifactIds).toEqual([])
   })
 })

@@ -30,14 +30,16 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
-            className="flex flex-col min-h-screen"
+            className="flex min-h-screen flex-col bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.10),_transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.92),_rgba(247,243,235,0.88))]"
           >
             <Header />
             <DataBar />
             <DataPanel />
-            <main className="flex-1 overflow-y-auto px-4 py-6">
-              <AnalysisStream />
-              <Suggestions />
+            <main className="mx-auto flex w-full max-w-6xl flex-1 overflow-y-auto px-4 py-8">
+              <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+                <AnalysisStream />
+                <Suggestions />
+              </div>
             </main>
             <InputBar />
           </motion.div>

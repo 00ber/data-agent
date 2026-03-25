@@ -1,23 +1,35 @@
 @import "tailwindcss";
 
 @theme {
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
-  --color-surface: #ffffff;
-  --color-surface-alt: #f9fafb;
-  --color-border: #e5e7eb;
-  --color-text: #111827;
-  --color-text-secondary: #6b7280;
-  --color-text-muted: #9ca3af;
-  --color-error: #ef4444;
-  --color-success: #22c55e;
+  --color-accent: #0f766e;
+  --color-accent-hover: #115e59;
+  --color-surface: #fffdf8;
+  --color-surface-alt: #f5efe4;
+  --color-border: #ddd3c1;
+  --color-text: #172033;
+  --color-text-secondary: #5b6474;
+  --color-text-muted: #8d95a5;
+  --color-error: #d9485f;
+  --color-success: #0f9d58;
 
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: 'Avenir Next', 'Segoe UI', 'Helvetica Neue', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
+html {
+  min-height: 100%;
+}
+
 body {
+  min-height: 100vh;
   font-family: var(--font-sans);
   color: var(--color-text);
-  background: var(--color-surface);
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.1), transparent 24%),
+    linear-gradient(180deg, #fffdf8 0%, #f7f3eb 100%);
+}
+
+#root {
+  min-height: 100vh;
 }

@@ -63,16 +63,22 @@ export interface AgentEvent {
 
 // -- Analysis types (used in store) ---------------------------------------
 
-export interface ProcessStep {
-  kind: EventKind
-  text: string
+export interface TraceTurn {
+  id: string
+  thought: string
+  code: string | null
+  artifacts: ArtifactData[]
+  result: string | null
+  error: string | null
 }
 
 export interface AnalysisBlock {
   id: string
   query: string
-  steps: ProcessStep[]
+  turns: TraceTurn[]
   artifacts: ArtifactData[]
+  responseArtifactIds: string[]
+  pendingArtifactIds: string[]
   answer: string | null
   status: 'streaming' | 'complete' | 'error'
   collapsed: boolean
