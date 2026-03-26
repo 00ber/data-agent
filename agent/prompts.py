@@ -5,7 +5,14 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING
 
-from agent.environment import AnalysisHandoff, Environment, ExecutionResult
+from agent.environment import (
+    AnalysisHandoff,
+    ArtifactObservation,
+    DataFrameObservation,
+    Environment,
+    ExecutionResult,
+    TextOutputObservation,
+)
 from agent.memory import Memory
 from agent.tools import Tools
 
@@ -15,8 +22,12 @@ if TYPE_CHECKING:
 SYSTEM_INSTRUCTIONS = """\
 You are an analytics agent. Answer questions about the loaded data by writing Python code.
 
-Use the available actions when they fit the task. Use print() for intermediate
-inspection. When you have enough information, you must call conclude_analysis()
+Use the available actions when they fit the task. Work like a notebook user:
+perform one meaningful set of operations per step, inspect uncertain outputs before
+relying on them (for example. inspecting the schema of a dataframe), 
+and prefer assigning new variables instead of mutating prior
+ones in place. Use schema(), head(), and sample() for intermediate inspection.
+When you have enough information, you must call conclude_analysis()
 with a stand-alone downstream handoff. The handoff is not polished UI copy.
 It should state the findings directly, mention the important categories,
 regions, rankings, or values when they matter, and reference relevant
@@ -89,6 +100,8 @@ Reference input tables by their unique names exactly as listed below.
 - Input tables are immutable and reset fresh on each execution step.
 - Variables you create in the workspace persist across steps.
 - After join() on tables with overlapping non-key column names, expect pandas-style suffixes such as _x and _y in the joined dataframe. Do not assume the original unsuffixed column name still exists.
+- After an ambiguous join, use schema() before grouping, filtering, or sorting on guessed column names.
+- Use schema(), head(), and sample() for internal inspection only.
 - Use publish_chart(), publish_table(), and publish_stat() only for results you want the user to see.
 - Libraries in scope: pd (pandas), np (numpy)
 """
@@ -120,15 +133,27 @@ def build_step_feedback(result: ExecutionResult) -> str:
         )
 
     artifact_count = sum(1 for event in result.events if event.kind == "artifact")
+    observation_summary = _format_observations(result.observations)
     if artifact_count > 0:
         return (
             f"Step produced {artifact_count} artifact(s) visible to the user. "
+            + ("\n\n" + observation_summary if observation_summary else "")
+            + "\n\n"
             "If you have displayed all the results needed to answer the question, "
             "call conclude_analysis() with a stand-alone handoff that states the "
             "actual findings directly and references any supporting artifacts inline. "
             "If the question asks about a relationship or likelihood, make sure you "
             "computed and interpreted the relevant rate or comparison before ending. "
             "Otherwise, continue."
+        )
+
+    if observation_summary:
+        return (
+            "Step succeeded.\n\n"
+            + observation_summary
+            + "\n\n"
+            "Continue with the next step, or call conclude_analysis() "
+            "if you have enough to answer the question."
         )
 
     return (
@@ -153,10 +178,43 @@ def build_step_messages(
     if not result.is_error:
         assistant_lines.append(f"Result: {result.output}")
 
+    observation_summary = _format_observations(result.observations)
+    if observation_summary:
+        assistant_lines.append(observation_summary)
+
     return [
         {"role": "assistant", "content": "\n".join(assistant_lines)},
         {"role": "user", "content": build_step_feedback(result)},
     ]
+
+
+def _format_observations(
+    observations: list[DataFrameObservation | ArtifactObservation | TextOutputObservation],
+) -> str:
+    """Render compact structured observations into one short prompt block."""
+
+    if len(observations) == 0:
+        return ""
+
+    lines: list[str] = []
+    for observation in observations:
+        if isinstance(observation, DataFrameObservation):
+            lines.append(
+                f"- dataframe {observation.name}: {observation.rows} rows; "
+                f"columns={observation.columns}; dtypes={observation.dtypes}"
+            )
+            continue
+
+        if isinstance(observation, ArtifactObservation):
+            lines.append(
+                f"- published artifact {observation.artifact_id}: "
+                f"{observation.artifact_kind} '{observation.title}'"
+            )
+            continue
+
+        lines.append(f"- text output: {observation.text}")
+
+    return "Observations:\n" + "\n".join(lines)
 
 
 def build_finalization_messages(

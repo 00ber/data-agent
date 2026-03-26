@@ -29,6 +29,9 @@ class Tools:
         "group_by",
         "sort",
         "join",
+        "schema",
+        "head",
+        "sample",
         "publish_chart",
         "publish_table",
         "publish_stat",
@@ -57,7 +60,7 @@ class Tools:
         - op: One of ==, !=, >, <, >=, <=, contains, startswith, or endswith.
         - value: Value compared against that column.
         Returns: A filtered dataframe.
-        Emits: table artifact
+        Emits: no artifact
         Example: west_orders = filter("orders", "region", "==", "West")
         """
 
@@ -69,13 +72,7 @@ class Tools:
                 f"Unknown operator: '{op}'. Supported: {', '.join(sorted(FILTER_OPS))}"
             )
 
-        filtered = df[FILTER_OPS[op](df[column], value)].reset_index(drop=True)
-        execution_context.publish_artifact(
-            "table",
-            f"Filtered: {column} {op} {value}",
-            self._table_data(filtered),
-        )
-        return filtered
+        return df[FILTER_OPS[op](df[column], value)].reset_index(drop=True)
 
     def group_by(
         self,
@@ -92,7 +89,7 @@ class Tools:
         - column: Column whose values will be aggregated.
         - agg: One of sum, mean, count, min, max, median, or std.
         Returns: A grouped dataframe with the grouping columns and aggregated column.
-        Emits: table artifact
+        Emits: no artifact
         Example: revenue_by_region = group_by("orders", "region", "revenue", "sum")
         """
 
@@ -108,13 +105,7 @@ class Tools:
                 f"Unknown aggregation: '{agg}'. Supported: {', '.join(sorted(self.AGGREGATIONS))}"
             )
 
-        grouped = df.groupby(by_columns, as_index=False)[column].agg(agg)
-        execution_context.publish_artifact(
-            "table",
-            f"{agg}({column}) by {', '.join(by_columns)}",
-            self._table_data(grouped),
-        )
-        return grouped
+        return df.groupby(by_columns, as_index=False)[column].agg(agg)
 
     def sort(
         self,
@@ -130,7 +121,7 @@ class Tools:
         - ascending: True or False for a single sort, or a list of True/False
           flags matching the sort columns for a multi-column sort.
         Returns: A sorted dataframe.
-        Emits: table artifact
+        Emits: no artifact
         Example: top_orders = sort("orders", ["segment", "revenue"], ascending=[True, False])
         """
 
@@ -142,17 +133,7 @@ class Tools:
         if isinstance(ascending, list) and len(ascending) != len(by_columns):
             raise ValueError("Ascending flags must match the number of sort columns.")
 
-        sorted_df = df.sort_values(by_columns, ascending=ascending).reset_index(drop=True)
-        if isinstance(ascending, list):
-            direction = "mixed"
-        else:
-            direction = "ascending" if ascending else "descending"
-        execution_context.publish_artifact(
-            "table",
-            f"Sorted by {', '.join(by_columns)} ({direction})",
-            self._table_data(sorted_df),
-        )
-        return sorted_df
+        return df.sort_values(by_columns, ascending=ascending).reset_index(drop=True)
 
     def join(
         self,
@@ -171,7 +152,7 @@ class Tools:
         Returns: A joined dataframe. If both tables share non-key column names,
         pandas-style suffixes such as _x and _y are applied to those overlapping
         columns in the result.
-        Emits: table artifact
+        Emits: no artifact
         Example: orders_with_customers = join("orders", "customers", on="customer_id")
         """
 
@@ -189,13 +170,64 @@ class Tools:
                     f"Join column '{join_column}' not found in right table. Available: {', '.join(right_df.columns)}"
                 )
 
-        joined = left_df.merge(right_df, on=join_columns, how=how)
-        execution_context.publish_artifact(
-            "table",
-            f"Joined on {', '.join(join_columns)} ({how})",
-            self._table_data(joined),
-        )
-        return joined
+        return left_df.merge(right_df, on=join_columns, how=how)
+
+    def schema(
+        self,
+        execution_context: ExecutionContext,
+        table: str | pd.DataFrame,
+    ) -> dict[str, Any]:
+        """Purpose: Inspect one table schema without showing it to the user.
+        Parameters:
+        - table: Table name or dataframe to inspect.
+        Returns: A dict with rows, columns, and dtypes.
+        Emits: no artifact
+        Example: joined_schema = schema(joined_orders_customers)
+        """
+
+        df = self._resolve(execution_context, table)
+        return {
+            "rows": len(df),
+            "columns": list(df.columns),
+            "dtypes": {column: str(df[column].dtype) for column in df.columns},
+        }
+
+    def head(
+        self,
+        execution_context: ExecutionContext,
+        table: str | pd.DataFrame,
+        n: int = 5,
+    ) -> pd.DataFrame:
+        """Purpose: Inspect the first rows of one table without showing them to the user.
+        Parameters:
+        - table: Table name or dataframe to preview.
+        - n: Number of rows to return.
+        Returns: A dataframe preview.
+        Emits: no artifact
+        Example: preview = head(joined_orders_customers, n=5)
+        """
+
+        df = self._resolve(execution_context, table)
+        return df.head(n).reset_index(drop=True)
+
+    def sample(
+        self,
+        execution_context: ExecutionContext,
+        table: str | pd.DataFrame,
+        n: int = 5,
+    ) -> pd.DataFrame:
+        """Purpose: Inspect a sample of rows from one table without showing them to the user.
+        Parameters:
+        - table: Table name or dataframe to sample.
+        - n: Number of rows to return.
+        Returns: A sampled dataframe.
+        Emits: no artifact
+        Example: sampled_orders = sample("orders", n=5)
+        """
+
+        df = self._resolve(execution_context, table)
+        sample_size = min(n, len(df))
+        return df.sample(n=sample_size, random_state=0).reset_index(drop=True)
 
     def publish_chart(
         self,

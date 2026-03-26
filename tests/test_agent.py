@@ -133,13 +133,60 @@ class TestAgent:
 
         events = [event async for event in agent.run("Summarize revenue by category.")]
 
-        assert [event.kind for event in events] == ["thinking", "code", "artifact", "artifact", "reviewing", "answer"]
+        assert [event.kind for event in events] == ["thinking", "code", "artifact", "reviewing", "answer"]
         assert events[2].data["kind"] == "table"
-        assert events[3].data["kind"] == "table"
-        assert events[4].data == {"text": "Finalizing response from the analysis handoff."}
-        assert events[5].data == {
+        assert events[3].data == {"text": "Finalizing response from the analysis handoff."}
+        assert events[4].data == {
             "blocks": [{"type": "markdown", "content": "done"}]
         }
+
+    @pytest.mark.asyncio
+    async def test_run_includes_observations_in_the_next_llm_call(self, orders_df):
+        llm = FakeLLM(
+            [
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Join the data first",
+                        code='joined = join("orders", "orders", on="order_id")',
+                    ),
+                ),
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Finish with the observed schema",
+                        code='conclude_analysis("Done.")',
+                    ),
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="done",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
+                ),
+            ]
+        )
+        agent = make_agent(llm, inputs={"orders": orders_df})
+
+        _ = [event async for event in agent.run("Inspect the joined schema.")]
+
+        second_call = llm.calls[1][1]
+        assert any(
+            message["role"] == "assistant"
+            and "Observations:" in message["content"]
+            and "joined" in message["content"]
+            and "region_x" in message["content"]
+            and "region_y" in message["content"]
+            for message in second_call
+        )
 
     @pytest.mark.asyncio
     async def test_run_retries_after_error_with_step_feedback(self):

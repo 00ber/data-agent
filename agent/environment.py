@@ -15,6 +15,7 @@ from agent.sandbox import ExecutionSandbox, SandboxResult, SandboxStop
 from agent.validation import require_text
 
 ArtifactKind = Literal["table", "chart", "stat"]
+ObservationKind = Literal["dataframe", "artifact", "text_output"]
 
 _RESERVED_RUNTIME_NAMES = {"pd", "np", "conclude_analysis"}
 _ARTIFACT_MENTION_PATTERN = re.compile(r"(?<!\w)@(artifact_[A-Za-z0-9_]+)\b")
@@ -28,6 +29,32 @@ class Artifact:
     kind: ArtifactKind
     title: str
     data: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class DataFrameObservation:
+    """One compact observation about a dataframe created in the workspace."""
+
+    name: str
+    rows: int
+    columns: list[str]
+    dtypes: dict[str, str]
+
+
+@dataclass(frozen=True)
+class ArtifactObservation:
+    """One compact observation about a published artifact."""
+
+    artifact_id: str
+    artifact_kind: ArtifactKind
+    title: str
+
+
+@dataclass(frozen=True)
+class TextOutputObservation:
+    """One compact observation about printed or repr-style step output."""
+
+    text: str
 
 
 @dataclass
@@ -46,6 +73,7 @@ class ExecutionResult:
     output: str | None
     is_error: bool
     analysis_handoff: AnalysisHandoff | None
+    observations: list[DataFrameObservation | ArtifactObservation | TextOutputObservation]
 
 
 @dataclass
@@ -54,6 +82,12 @@ class ExecutionContext:
 
     environment: "Environment"
     pending_events: list[Event] = field(default_factory=list)
+    before_workspace: dict[str, Any] = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Snapshot the workspace so the step can report what changed."""
+
+        self.before_workspace = dict(self.environment.workspace)
 
     def build_namespace(self) -> dict[str, Any]:
         """Build the step namespace from environment state and bound actions."""
@@ -118,6 +152,7 @@ class ExecutionContext:
             output=result.output,
             is_error=False,
             analysis_handoff=None,
+            observations=self._collect_observations(result.output),
         )
 
     def error_outcome(self, result: SandboxResult) -> ExecutionResult:
@@ -129,6 +164,7 @@ class ExecutionContext:
             output=result.output,
             is_error=True,
             analysis_handoff=None,
+            observations=[],
         )
 
     def analysis_handoff_outcome(self, value: Any) -> ExecutionResult:
@@ -142,6 +178,7 @@ class ExecutionContext:
             output=None,
             is_error=False,
             analysis_handoff=value,
+            observations=self._collect_observations(None),
         )
 
     def _coerce_artifact_ids(self, artifact_ids: Any | None) -> list[str]:
@@ -196,6 +233,63 @@ class ExecutionContext:
             return action(self, *args, **kwargs)
 
         return bound_action
+
+    def _collect_observations(
+        self,
+        text_output: str | None,
+    ) -> list[DataFrameObservation | ArtifactObservation | TextOutputObservation]:
+        """Collect one compact summary of what this step produced."""
+
+        observations: list[
+            DataFrameObservation | ArtifactObservation | TextOutputObservation
+        ] = []
+
+        observations.extend(self._collect_dataframe_observations())
+        observations.extend(self._collect_artifact_observations())
+        if text_output not in {None, "OK"}:
+            observations.append(TextOutputObservation(text=text_output))
+        return observations
+
+    def _collect_dataframe_observations(self) -> list[DataFrameObservation]:
+        """Summarize newly created or reassigned dataframe workspace variables."""
+
+        observations: list[DataFrameObservation] = []
+        for name, value in self.environment.workspace.items():
+            if not isinstance(value, pd.DataFrame):
+                continue
+
+            previous_value = self.before_workspace.get(name)
+            if previous_value is value:
+                continue
+
+            observations.append(
+                DataFrameObservation(
+                    name=name,
+                    rows=len(value),
+                    columns=list(value.columns),
+                    dtypes={column: str(value[column].dtype) for column in value.columns},
+                )
+            )
+
+        return observations
+
+    def _collect_artifact_observations(self) -> list[ArtifactObservation]:
+        """Summarize published artifacts from this execution."""
+
+        observations: list[ArtifactObservation] = []
+        for event in self.pending_events:
+            if event.kind != "artifact":
+                continue
+
+            observations.append(
+                ArtifactObservation(
+                    artifact_id=str(event.data["id"]),
+                    artifact_kind=event.data["kind"],
+                    title=str(event.data["title"]),
+                )
+            )
+
+        return observations
 
 
 @dataclass

@@ -1,12 +1,21 @@
 from agent.answer_blocks import MarkdownAnswerBlock
 from agent.agent import FinalResponseBlock, FinalResponseReview
 from agent.events import Event
-from agent.environment import AnalysisHandoff, Artifact, Environment, ExecutionResult
+from agent.environment import (
+    AnalysisHandoff,
+    Artifact,
+    ArtifactObservation,
+    DataFrameObservation,
+    Environment,
+    ExecutionResult,
+    TextOutputObservation,
+)
 from agent.memory import Memory
 from agent.prompts import (
     build_conversation_messages,
     build_finalization_messages,
     build_step_feedback,
+    build_step_messages,
     build_system_prompt,
     describe_tool,
     describe_tools,
@@ -65,7 +74,10 @@ class TestDescribeTools:
         assert result.index("filter(") < result.index("group_by(")
         assert result.index("group_by(") < result.index("sort(")
         assert result.index("sort(") < result.index("join(")
-        assert result.index("join(") < result.index("publish_chart(")
+        assert result.index("join(") < result.index("schema(")
+        assert result.index("schema(") < result.index("head(")
+        assert result.index("head(") < result.index("sample(")
+        assert result.index("sample(") < result.index("publish_chart(")
         assert result.index("publish_chart(") < result.index("publish_table(")
         assert result.index("publish_table(") < result.index("publish_stat(")
 
@@ -94,6 +106,7 @@ class TestBuildSystemPrompt:
 
         assert "filter(" in prompt
         assert "group_by(" in prompt
+        assert "schema(" in prompt
         assert "publish_table(" in prompt
 
     def test_includes_conclude_analysis_in_available_actions_section(self, orders_df):
@@ -130,6 +143,8 @@ class TestBuildSystemPrompt:
         assert "_x and _y" in prompt
         assert "libraries in scope" in prompt.lower()
         assert "publish_chart(), publish_table(), and publish_stat()" in prompt
+        assert "schema(), head(), and sample()" in prompt
+        assert "one meaningful operation per step" in prompt.lower()
 
     def test_requires_downstream_handoff_notes(self, orders_df):
         environment = Environment(
@@ -178,6 +193,7 @@ class TestBuildStepFeedback:
             output="ZeroDivisionError: division by zero",
             is_error=True,
             analysis_handoff=None,
+            observations=[],
         )
 
         feedback = build_step_feedback(result)
@@ -195,6 +211,13 @@ class TestBuildStepFeedback:
             output="OK",
             is_error=False,
             analysis_handoff=None,
+            observations=[
+                ArtifactObservation(
+                    artifact_id="artifact_1",
+                    artifact_kind="table",
+                    title="Preview",
+                )
+            ],
         )
 
         feedback = build_step_feedback(result)
@@ -209,12 +232,57 @@ class TestBuildStepFeedback:
             output="OK",
             is_error=False,
             analysis_handoff=None,
+            observations=[
+                DataFrameObservation(
+                    name="joined",
+                    rows=10,
+                    columns=["region_x", "region_y", "total"],
+                    dtypes={
+                        "region_x": "object",
+                        "region_y": "object",
+                        "total": "float64",
+                    },
+                )
+            ],
         )
 
         feedback = build_step_feedback(result)
 
         assert "Step succeeded." in feedback
         assert "call conclude_analysis()" in feedback
+        assert "joined" in feedback
+        assert "region_y" in feedback
+
+
+class TestBuildStepMessages:
+    def test_includes_structured_observations_in_assistant_message(self):
+        result = ExecutionResult(
+            events=[],
+            output="5",
+            is_error=False,
+            analysis_handoff=None,
+            observations=[
+                DataFrameObservation(
+                    name="joined",
+                    rows=12,
+                    columns=["segment", "region_y", "total"],
+                    dtypes={
+                        "segment": "object",
+                        "region_y": "object",
+                        "total": "float64",
+                    },
+                ),
+                TextOutputObservation(text="5"),
+            ],
+        )
+        code_step = type("CodeStep", (), {"plan": "Inspect the join", "code": "print(5)"})()
+
+        messages = build_step_messages(code_step, result)
+
+        assert "Observations:" in messages[0]["content"]
+        assert "joined" in messages[0]["content"]
+        assert "region_y" in messages[0]["content"]
+        assert "5" in messages[0]["content"]
 
 
 class TestBuildFinalizationMessages:

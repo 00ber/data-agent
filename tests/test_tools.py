@@ -76,12 +76,11 @@ class TestFilter:
 
         assert all("Elec" in value for value in result["category"])
 
-    def test_emits_table_artifact(self, tools, execution_context):
+    def test_does_not_emit_table_artifact(self, tools, execution_context):
         tools.filter(execution_context, "orders", "category", "==", "Home")
 
-        assert len(execution_context.environment.artifacts) == 1
-        assert execution_context.pending_events[0].kind == "artifact"
-        assert execution_context.pending_events[0].data["kind"] == "table"
+        assert execution_context.environment.artifacts == []
+        assert execution_context.pending_events == []
 
     def test_invalid_column_raises(self, tools, execution_context):
         with pytest.raises(ValueError, match="Column 'nonexistent' not found"):
@@ -121,6 +120,12 @@ class TestGroupBy:
     def test_invalid_agg_raises(self, tools, execution_context):
         with pytest.raises(ValueError, match="Unknown aggregation: 'mode'"):
             tools.group_by(execution_context, "orders", "category", "revenue", "mode")
+
+    def test_does_not_emit_table_artifact(self, tools, execution_context):
+        tools.group_by(execution_context, "orders", "category", "revenue", "sum")
+
+        assert execution_context.environment.artifacts == []
+        assert execution_context.pending_events == []
 
 
 class TestSort:
@@ -162,6 +167,12 @@ class TestSort:
                 by=["category", "region"],
                 ascending=[True],
             )
+
+    def test_does_not_emit_table_artifact(self, tools, execution_context):
+        tools.sort(execution_context, "orders", "revenue", ascending=False)
+
+        assert execution_context.environment.artifacts == []
+        assert execution_context.pending_events == []
 
 
 class TestJoin:
@@ -214,6 +225,39 @@ class TestJoin:
     def test_invalid_join_column_raises(self, tools, execution_context):
         with pytest.raises(ValueError, match="not found"):
             tools.join(execution_context, "orders", "customers", on="nonexistent")
+
+    def test_does_not_emit_table_artifact(self, tools, execution_context):
+        tools.join(execution_context, "orders", "customers", on="customer_id")
+
+        assert execution_context.environment.artifacts == []
+        assert execution_context.pending_events == []
+
+
+class TestInspect:
+    def test_schema_returns_table_shape_columns_and_dtypes(self, tools, execution_context):
+        result = tools.schema(execution_context, "orders")
+
+        assert result["rows"] == len(execution_context.environment.inputs["orders"])
+        assert "revenue" in result["columns"]
+        assert "revenue" in result["dtypes"]
+        assert execution_context.environment.artifacts == []
+        assert execution_context.pending_events == []
+
+    def test_head_returns_preview_without_emitting_artifact(self, tools, execution_context):
+        result = tools.head(execution_context, "orders", n=2)
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 2
+        assert execution_context.environment.artifacts == []
+        assert execution_context.pending_events == []
+
+    def test_sample_returns_preview_without_emitting_artifact(self, tools, execution_context):
+        result = tools.sample(execution_context, "orders", n=2)
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 2
+        assert execution_context.environment.artifacts == []
+        assert execution_context.pending_events == []
 
 
 class TestShowChart:
@@ -272,4 +316,4 @@ class TestRegistration:
         assert outcome.output == "OK"
         assert "grouped" in environment.workspace
         assert isinstance(environment.workspace["grouped"], pd.DataFrame)
-        assert [event.kind for event in outcome.events] == ["artifact", "result"]
+        assert [event.kind for event in outcome.events] == ["result"]
