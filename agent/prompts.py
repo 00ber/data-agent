@@ -3,42 +3,44 @@
 from __future__ import annotations
 
 import inspect
+from typing import TYPE_CHECKING
 
-from agent.environment import Environment, ExecutionResult
-from agent.llm import CodeStep
+from agent.environment import AnalysisHandoff, Environment, ExecutionResult
 from agent.memory import Memory
 from agent.tools import Tools
+
+if TYPE_CHECKING:
+    from agent.agent import CodeStep
 
 SYSTEM_INSTRUCTIONS = """\
 You are an analytics agent. Answer questions about the loaded data by writing Python code.
 
 Use the available actions when they fit the task. Use print() for intermediate
-inspection. When you have enough information, you must call final_answer() with
-a list of answer blocks. Use markdown blocks for narrative and artifact blocks
-for the specific published tables, charts, or stats you want inline in the
-final answer. The final answer states the findings directly. Do not just say that the
-answer is shown in a table or chart. State the important categories, regions,
-rankings, or values when they matter. Write like a concise analyst note for a
-human reader. Use markdown structure when it helps: a short heading, tight
-paragraphs, or bullets. The first sentence should answer the user's question
-directly. If the question asks about a correlation, relationship, likelihood,
+inspection. When you have enough information, you must call conclude_analysis()
+with a stand-alone downstream handoff. The handoff is not polished UI copy.
+It should state the findings directly, mention the important categories,
+regions, rankings, or values when they matter, and reference relevant
+published artifacts inline with @artifact_id mentions. If the question asks
+about a correlation, relationship or likelihood,
 comparison, or trend, do not stop at raw tables. Compute and explain a direct
 measure such as a rate, difference, change, ranking, or normalized comparison.
 """
 
-FINAL_ANSWER_DESCRIPTION = """\
-final_answer(blocks)
-Purpose: End the run with the final user-facing answer as ordered markdown and artifact blocks.
+CONCLUDE_ANALYSIS_DESCRIPTION = """\
+conclude_analysis(notes, artifact_ids=[])
+Purpose: End the analysis loop with a downstream handoff for final response review.
 Parameters:
-- blocks: A non-empty list of dictionaries. Use {"type": "markdown", "content": "..."} for narrative and {"type": "artifact", "artifact_id": artifact_id} to place a previously published artifact inline.
+- notes: A stand-alone downstream handoff that summarizes the findings directly. Do not write polished UI copy. Reference published artifacts inline with @artifact_id when they support the conclusion.
+- artifact_ids: A list of published artifact ids that the handoff may reference.
 Returns: No value.
 Emits: no artifact
 Example: chart_id = publish_chart(revenue_by_region, kind="bar", title="Revenue by Region")
-final_answer([
-  {"type": "markdown", "content": "## Revenue summary\\n\\n**West** leads overall revenue, with East close behind. The difference is meaningful rather than marginal."},
-  {"type": "artifact", "artifact_id": chart_id},
-  {"type": "markdown", "content": "- Consumer contributes the largest share.\\n- Enterprise remains much smaller."},
-])
+conclude_analysis(
+  "West leads revenue overall, with East close behind. The chart @"
+  + chart_id
+  + " shows the ranking clearly.",
+  [chart_id],
+)
 """
 
 
@@ -80,7 +82,7 @@ Reference input tables by their unique names exactly as listed below.
 
 {describe_tools(tools)}
 
-{FINAL_ANSWER_DESCRIPTION}
+{CONCLUDE_ANALYSIS_DESCRIPTION}
 
 ## Runtime
 
@@ -107,8 +109,8 @@ def build_conversation_messages(
 def build_step_feedback(result: ExecutionResult) -> str:
     """Build the follow-up user message after one execution step."""
 
-    if result.final_answer is not None:
-        raise ValueError("Step feedback should not be built for a final answer.")
+    if result.analysis_handoff is not None:
+        raise ValueError("Step feedback should not be built for an analysis handoff.")
 
     if result.is_error:
         return (
@@ -122,15 +124,15 @@ def build_step_feedback(result: ExecutionResult) -> str:
         return (
             f"Step produced {artifact_count} artifact(s) visible to the user. "
             "If you have displayed all the results needed to answer the question, "
-            "call final_answer() with markdown and artifact blocks that summarize "
-            "the actual findings, not just that the answer is visible. If the "
-            "question asks about a relationship or likelihood, make sure you "
+            "call conclude_analysis() with a stand-alone handoff that states the "
+            "actual findings directly and references any supporting artifacts inline. "
+            "If the question asks about a relationship or likelihood, make sure you "
             "computed and interpreted the relevant rate or comparison before ending. "
             "Otherwise, continue."
         )
 
     return (
-        "Step succeeded. Continue with the next step, or call final_answer() "
+        "Step succeeded. Continue with the next step, or call conclude_analysis() "
         "if you have enough to answer the question."
     )
 
@@ -141,8 +143,8 @@ def build_step_messages(
 ) -> list[dict[str, str]]:
     """Build the transient assistant/user messages for one finished step."""
 
-    if result.final_answer is not None:
-        raise ValueError("Step messages should not be built for a final answer.")
+    if result.analysis_handoff is not None:
+        raise ValueError("Step messages should not be built for an analysis handoff.")
 
     assistant_lines = [
         f"Plan: {code_step.plan}",
@@ -155,3 +157,92 @@ def build_step_messages(
         {"role": "assistant", "content": "\n".join(assistant_lines)},
         {"role": "user", "content": build_step_feedback(result)},
     ]
+
+
+def build_finalization_messages(
+    question: str,
+    handoff: AnalysisHandoff,
+    environment: Environment,
+) -> list[dict[str, str]]:
+    """Build the review-and-synthesis prompt for a completed analysis handoff."""
+
+    artifact_by_id = {artifact.id: artifact for artifact in environment.artifacts}
+    artifact_previews: list[str] = []
+
+    for artifact_id in handoff.artifact_ids:
+        artifact = artifact_by_id[artifact_id]
+        artifact_previews.append(_format_artifact_preview(artifact))
+
+    user_content = "\n\n".join(
+        [
+            f"Question:\n{question}",
+            f"Analysis handoff:\n{handoff.notes}",
+            "Artifact previews:\n"
+            + ("\n\n".join(artifact_previews) if artifact_previews else "None"),
+            (
+                "Review instructions:\n"
+                "- If the handoff is sufficient, return status='approved' and "
+                "ordered answer blocks.\n"
+                "- If more work is needed, return status='needs_more_analysis' "
+                "with a concrete critique.\n"
+                "- For approved responses, each block must include type, content, "
+                "and artifact_id.\n"
+                '- Use {"type": "markdown", "content": "...", "artifact_id": null} '
+                "for markdown.\n"
+                '- Use {"type": "artifact", "content": null, "artifact_id": "..."} '
+                "for artifact references."
+            ),
+        ]
+    )
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are the final response review for an analytics agent. "
+                "Decide whether the analysis handoff is ready to become the "
+                "final user-facing response. Approve only if the handoff "
+                "directly answers the question and the supporting artifacts fit "
+                "the conclusion."
+            ),
+        },
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _format_artifact_preview(artifact: object) -> str:
+    """Format one compact artifact preview for final response review."""
+
+    kind = getattr(artifact, "kind")
+    title = getattr(artifact, "title")
+    data = getattr(artifact, "data")
+    artifact_id = getattr(artifact, "id")
+
+    if kind == "table":
+        columns = data.get("columns", [])
+        rows = data.get("rows", [])
+        shape = data.get("shape", [len(rows), len(columns)])
+        preview_rows = rows[:8]
+        return (
+            f"{artifact_id} ({kind})\n"
+            f"Title: {title}\n"
+            f"Columns: {columns}\n"
+            f"Rows: {shape[0]}\n"
+            f"Preview rows: {preview_rows}"
+        )
+
+    if kind == "chart":
+        records = data.get("records", [])
+        return (
+            f"{artifact_id} ({kind})\n"
+            f"Title: {title}\n"
+            f"Chart type: {data.get('chart_type')}\n"
+            f"Columns: {data.get('columns', [])}\n"
+            f"Preview records: {records[:8]}"
+        )
+
+    return (
+        f"{artifact_id} ({kind})\n"
+        f"Title: {title}\n"
+        f"Value: {data}"
+    )

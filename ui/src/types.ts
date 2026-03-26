@@ -68,7 +68,14 @@ export type AnswerBlockData = MarkdownAnswerBlockData | ArtifactAnswerBlockData
 
 // -- Agent event types ----------------------------------------------------
 
-export type EventKind = 'thinking' | 'code' | 'artifact' | 'result' | 'answer' | 'error'
+export type EventKind =
+  | 'thinking'
+  | 'code'
+  | 'artifact'
+  | 'reviewing'
+  | 'result'
+  | 'answer'
+  | 'error'
 
 export interface AgentEvent {
   kind: EventKind
@@ -92,6 +99,6 @@ export interface AnalysisBlock {
   turns: TraceTurn[]
   artifacts: ArtifactData[]
   answerBlocks: AnswerBlockData[] | null
-  status: 'streaming' | 'complete' | 'error'
+  status: 'streaming' | 'reviewing' | 'complete' | 'error'
   collapsed: boolean
 }

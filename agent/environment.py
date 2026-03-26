@@ -3,20 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Callable, Literal
 import uuid
 
 import numpy as np
 import pandas as pd
 
-from agent.answer_blocks import AnswerBlock, coerce_answer_blocks
 from agent.events import Event
 from agent.sandbox import ExecutionSandbox, SandboxResult, SandboxStop
 from agent.validation import require_text
 
 ArtifactKind = Literal["table", "chart", "stat"]
 
-_RESERVED_RUNTIME_NAMES = {"pd", "np", "final_answer"}
+_RESERVED_RUNTIME_NAMES = {"pd", "np", "conclude_analysis"}
+_ARTIFACT_MENTION_PATTERN = re.compile(r"(?<!\w)@(artifact_[A-Za-z0-9_]+)\b")
 
 
 @dataclass(frozen=True)
@@ -30,13 +31,21 @@ class Artifact:
 
 
 @dataclass
+class AnalysisHandoff:
+    """Structured downstream handoff produced when analysis is complete."""
+
+    notes: str
+    artifact_ids: list[str]
+
+
+@dataclass
 class ExecutionResult:
     """Structured result returned from one environment execution."""
 
     events: list[Event]
     output: str | None
     is_error: bool
-    final_answer: list[AnswerBlock] | None
+    analysis_handoff: AnalysisHandoff | None
 
 
 @dataclass
@@ -55,7 +64,7 @@ class ExecutionContext:
         }
         namespace.update(self.environment.workspace)
         namespace.update(self._bind_actions())
-        namespace["final_answer"] = self.final_answer
+        namespace["conclude_analysis"] = self.conclude_analysis
         namespace["pd"] = pd
         namespace["np"] = np
         return namespace
@@ -82,14 +91,23 @@ class ExecutionContext:
         )
         return artifact
 
-    def final_answer(self, blocks: Any) -> None:
-        """Stop this execution with validated structured answer blocks."""
+    def conclude_analysis(
+        self,
+        notes: Any,
+        artifact_ids: Any | None = None,
+    ) -> None:
+        """Stop this execution with a validated downstream analysis handoff."""
 
-        normalized_blocks = coerce_answer_blocks(
-            blocks,
-            available_artifact_ids={artifact.id for artifact in self.environment.artifacts},
+        normalized_notes = require_text(notes, "Analysis handoff notes")
+        normalized_artifact_ids = self._coerce_artifact_ids(artifact_ids)
+        self._validate_artifact_ids_exist(normalized_artifact_ids)
+        self._validate_artifact_mentions(normalized_notes, normalized_artifact_ids)
+        raise SandboxStop(
+            AnalysisHandoff(
+                notes=normalized_notes,
+                artifact_ids=normalized_artifact_ids,
+            )
         )
-        raise SandboxStop(normalized_blocks)
 
     def success_outcome(self, result: SandboxResult) -> ExecutionResult:
         """Build the outcome for one successful sandbox execution."""
@@ -99,7 +117,7 @@ class ExecutionContext:
             events=events,
             output=result.output,
             is_error=False,
-            final_answer=None,
+            analysis_handoff=None,
         )
 
     def error_outcome(self, result: SandboxResult) -> ExecutionResult:
@@ -110,21 +128,58 @@ class ExecutionContext:
             events=events,
             output=result.output,
             is_error=True,
-            final_answer=None,
+            analysis_handoff=None,
         )
 
-    def final_answer_outcome(self, value: Any) -> ExecutionResult:
-        """Build the outcome for one terminal final answer."""
+    def analysis_handoff_outcome(self, value: Any) -> ExecutionResult:
+        """Build the outcome for one terminal analysis handoff."""
 
-        if not isinstance(value, list):
-            raise ValueError("Final answer must contain structured blocks.")
+        if not isinstance(value, AnalysisHandoff):
+            raise ValueError("Analysis handoff must contain notes and artifact ids.")
 
         return ExecutionResult(
             events=[*self.pending_events],
             output=None,
             is_error=False,
-            final_answer=value,
+            analysis_handoff=value,
         )
+
+    def _coerce_artifact_ids(self, artifact_ids: Any | None) -> list[str]:
+        """Coerce one raw artifact id payload into a validated string list."""
+
+        if artifact_ids is None:
+            return []
+        if not isinstance(artifact_ids, list):
+            raise ValueError("Analysis handoff artifact_ids must be a list of strings.")
+
+        normalized_artifact_ids: list[str] = []
+        for raw_artifact_id in artifact_ids:
+            normalized_artifact_ids.append(
+                require_text(raw_artifact_id, "Analysis handoff artifact id")
+            )
+        return normalized_artifact_ids
+
+    def _validate_artifact_ids_exist(self, artifact_ids: list[str]) -> None:
+        """Reject handoff artifact ids that do not exist in the environment."""
+
+        available_artifact_ids = {artifact.id for artifact in self.environment.artifacts}
+        for artifact_id in artifact_ids:
+            if artifact_id not in available_artifact_ids:
+                raise ValueError(f"Unknown artifact reference '{artifact_id}'.")
+
+    def _validate_artifact_mentions(
+        self,
+        notes: str,
+        artifact_ids: list[str],
+    ) -> None:
+        """Reject inline artifact mentions that are missing from artifact_ids."""
+
+        mentioned_artifact_ids = _ARTIFACT_MENTION_PATTERN.findall(notes)
+        for artifact_id in mentioned_artifact_ids:
+            if artifact_id not in artifact_ids:
+                raise ValueError(
+                    f"Artifact '{artifact_id}' mentioned in notes must also appear in artifact_ids."
+                )
 
     def _bind_actions(self) -> dict[str, Callable[..., Any]]:
         """Bind registered actions to this execution context."""
@@ -185,7 +240,7 @@ class Environment:
             result = self.sandbox.execute(code, namespace)
         except SandboxStop as stop:
             self._persist_workspace(namespace)
-            return execution_context.final_answer_outcome(stop.value)
+            return execution_context.analysis_handoff_outcome(stop.value)
 
         self._persist_workspace(namespace)
 

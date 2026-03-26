@@ -1,9 +1,11 @@
 from agent.answer_blocks import MarkdownAnswerBlock
+from agent.agent import FinalResponseBlock, FinalResponseReview
 from agent.events import Event
-from agent.environment import Environment, ExecutionResult
+from agent.environment import AnalysisHandoff, Artifact, Environment, ExecutionResult
 from agent.memory import Memory
 from agent.prompts import (
     build_conversation_messages,
+    build_finalization_messages,
     build_step_feedback,
     build_system_prompt,
     describe_tool,
@@ -94,7 +96,7 @@ class TestBuildSystemPrompt:
         assert "group_by(" in prompt
         assert "publish_table(" in prompt
 
-    def test_includes_final_answer_in_available_actions_section(self, orders_df):
+    def test_includes_conclude_analysis_in_available_actions_section(self, orders_df):
         environment = Environment(
             inputs={"orders": orders_df},
             sandbox=ExecutionSandbox(),
@@ -107,11 +109,11 @@ class TestBuildSystemPrompt:
         )[0]
 
         assert "## Available Actions" in prompt
-        assert "final_answer(" in prompt
-        assert "must call final_answer" in prompt.lower()
+        assert "conclude_analysis(" in prompt
+        assert "must call conclude_analysis" in prompt.lower()
         assert "## Final Answer" not in prompt
         assert actions_section.index("publish_stat(") < actions_section.index(
-            "final_answer("
+            "conclude_analysis("
         )
 
     def test_includes_workspace_guidance(self, orders_df):
@@ -129,7 +131,7 @@ class TestBuildSystemPrompt:
         assert "libraries in scope" in prompt.lower()
         assert "publish_chart(), publish_table(), and publish_stat()" in prompt
 
-    def test_requires_concrete_final_answers(self, orders_df):
+    def test_requires_downstream_handoff_notes(self, orders_df):
         environment = Environment(
             inputs={"orders": orders_df},
             sandbox=ExecutionSandbox(),
@@ -137,14 +139,12 @@ class TestBuildSystemPrompt:
 
         prompt = build_system_prompt(environment, Tools())
 
-        assert "states the findings directly" in prompt.lower()
-        assert "do not just say" in prompt.lower()
-        assert "analyst note" in prompt.lower()
-        assert "first sentence should answer the user's question directly" in prompt.lower()
-        assert "correlation" in prompt.lower()
+        assert "stand-alone downstream handoff" in prompt.lower()
+        assert "not polished ui copy" in prompt.lower()
+        assert "@artifact_" in prompt
+        assert "relationship or likelihood" in prompt.lower()
         assert "normalized comparison" in prompt.lower()
-        assert '"type": "markdown"' in prompt
-        assert '"type": "artifact"' in prompt
+        assert "artifact_ids" in prompt
 
 
 class TestBuildConversationMessages:
@@ -177,7 +177,7 @@ class TestBuildStepFeedback:
             events=[],
             output="ZeroDivisionError: division by zero",
             is_error=True,
-            final_answer=None,
+            analysis_handoff=None,
         )
 
         feedback = build_step_feedback(result)
@@ -194,24 +194,85 @@ class TestBuildStepFeedback:
             ],
             output="OK",
             is_error=False,
-            final_answer=None,
+            analysis_handoff=None,
         )
 
         feedback = build_step_feedback(result)
 
         assert "artifact(s) visible to the user" in feedback
-        assert "call final_answer()" in feedback
-        assert "summarize the actual findings" in feedback.lower()
+        assert "call conclude_analysis()" in feedback
+        assert "stand-alone handoff" in feedback.lower()
 
     def test_success_feedback_without_artifacts(self):
         result = ExecutionResult(
             events=[],
             output="OK",
             is_error=False,
-            final_answer=None,
+            analysis_handoff=None,
         )
 
         feedback = build_step_feedback(result)
 
         assert "Step succeeded." in feedback
-        assert "call final_answer()" in feedback
+        assert "call conclude_analysis()" in feedback
+
+
+class TestBuildFinalizationMessages:
+    def test_includes_question_handoff_and_artifact_preview(self, orders_df):
+        environment = Environment(
+            inputs={"orders": orders_df},
+            sandbox=ExecutionSandbox(),
+        )
+        environment.artifacts.append(
+            Artifact(
+                id="artifact_1",
+                kind="table",
+                title="Revenue by region",
+                data={
+                    "columns": ["region", "revenue"],
+                    "rows": [["West", 100], ["East", 90]],
+                    "shape": [2, 2],
+                },
+            )
+        )
+        handoff = AnalysisHandoff(
+            notes="The table @artifact_1 shows West ahead of East.",
+            artifact_ids=["artifact_1"],
+        )
+
+        messages = build_finalization_messages(
+            "Which region leads revenue?",
+            handoff,
+            environment,
+        )
+
+        assert messages[0]["role"] == "system"
+        assert "final response review" in messages[0]["content"].lower()
+        assert "Which region leads revenue?" in messages[1]["content"]
+        assert "The table @artifact_1 shows West ahead of East." in messages[1]["content"]
+        assert "Revenue by region" in messages[1]["content"]
+        assert "West" in messages[1]["content"]
+        assert "East" in messages[1]["content"]
+
+    def test_final_response_review_model_stores_review_fields(self):
+        review = FinalResponseReview(
+            status="approved",
+            critique=None,
+            blocks=[
+                FinalResponseBlock(
+                    type="markdown",
+                    content="done",
+                    artifact_id=None,
+                )
+            ],
+        )
+
+        assert review.status == "approved"
+        assert review.critique is None
+        assert review.blocks == [
+            FinalResponseBlock(
+                type="markdown",
+                content="done",
+                artifact_id=None,
+            )
+        ]

@@ -218,6 +218,24 @@ describe('UI actions', () => {
 })
 
 describe('artifact handling', () => {
+  it('marks the current analysis as reviewing while the final response is being synthesized', async () => {
+    useStore.setState({ sessionId: 'sess_1' })
+
+    mockedApi.streamMessage.mockImplementation((_sessionId, _message, onEvent) => {
+      onEvent({ kind: 'thinking', data: { text: 'Summarize revenue by region.' } })
+      onEvent({ kind: 'code', data: { text: 'grouped = group_by(...)' } })
+      onEvent({ kind: 'reviewing', data: { text: 'Finalizing response from the analysis handoff.' } })
+
+      return { close: vi.fn() }
+    })
+
+    await useStore.getState().ask('Which region leads revenue?')
+
+    const analysis = useStore.getState().analyses[0]!
+    expect(analysis.status).toBe('reviewing')
+    expect(useStore.getState().streaming).toBe(true)
+  })
+
   it('keeps artifact payloads on trace steps and stores structured final answer blocks', async () => {
     useStore.setState({ sessionId: 'sess_1' })
 

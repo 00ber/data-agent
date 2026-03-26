@@ -11,6 +11,7 @@ class TestEventKind:
             "thinking",
             "code",
             "artifact",
+            "reviewing",
             "result",
             "answer",
             "error",
@@ -43,3 +44,9 @@ class TestEvent:
 
         assert event.kind == "answer"
         assert event.data["text"] == "West drives the most revenue."
+
+    def test_stores_reviewing_payload(self):
+        event = Event("reviewing", {"text": "Finalizing response."})
+
+        assert event.kind == "reviewing"
+        assert event.data["text"] == "Finalizing response."

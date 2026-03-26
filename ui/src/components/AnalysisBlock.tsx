@@ -37,6 +37,8 @@ function statusLabel(status: AnalysisBlockType['status']) {
   switch (status) {
     case 'streaming':
       return 'Running'
+    case 'reviewing':
+      return 'Finalizing response'
     case 'complete':
       return 'Complete'
     case 'error':
@@ -48,6 +50,8 @@ function statusClass(status: AnalysisBlockType['status']) {
   switch (status) {
     case 'streaming':
       return 'bg-accent/10 text-accent'
+    case 'reviewing':
+      return 'bg-[rgba(245,158,11,0.12)] text-[rgb(180,83,9)]'
     case 'complete':
       return 'bg-success/10 text-success'
     case 'error':
@@ -60,9 +64,13 @@ export default function AnalysisBlock({ block }: AnalysisBlockProps) {
   const [processExpanded, setProcessExpanded] = useState(false)
 
   const turnCount = block.turns.length
+  const thoughtLabel = turnCount === 1 ? 'thought' : 'thoughts'
   const artifactCount = block.artifacts.length
   const isExpanded = !block.collapsed
-  const isProcessExpanded = block.status === 'streaming' ? true : processExpanded
+  const isProcessExpanded =
+    block.status === 'streaming' || block.status === 'reviewing'
+      ? true
+      : processExpanded
   const answerPreview = buildAnswerPreview(block)
   const referencedArtifacts = useMemo(
     () =>
@@ -85,11 +93,13 @@ export default function AnalysisBlock({ block }: AnalysisBlockProps) {
               <span
                 className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${statusClass(block.status)}`}
               >
-                {block.status === 'streaming' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {(block.status === 'streaming' || block.status === 'reviewing') && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
                 {statusLabel(block.status)}
               </span>
               <span className="rounded-full bg-surface/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                {turnCount} turns
+                {turnCount} {thoughtLabel}
               </span>
               {artifactCount > 0 && (
                 <span className="rounded-full bg-surface/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
@@ -103,6 +113,8 @@ export default function AnalysisBlock({ block }: AnalysisBlockProps) {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">
               {block.status === 'streaming'
                 ? 'Live reasoning trace and intermediate outputs update as the agent works.'
+                : block.status === 'reviewing'
+                  ? 'The analysis is complete. Final response review is now synthesizing the answer from the handoff and supporting artifacts.'
                 : 'Review the answer, inspect the trace, and open intermediate artifacts when you need to verify how the conclusion was produced.'}
             </p>
           </div>

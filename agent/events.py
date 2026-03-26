@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-EventKind = Literal["thinking", "code", "artifact", "result", "answer", "error"]
+EventKind = Literal[
+    "thinking",
+    "code",
+    "artifact",
+    "reviewing",
+    "result",
+    "answer",
+    "error",
+]
 
 
 @dataclass

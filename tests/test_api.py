@@ -4,19 +4,27 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 import api.main as api_main
 from agent import Agent, CodeStep, OpenAILLM
+from agent.agent import FinalResponseBlock, FinalResponseReview
 from api.datasets import SAMPLE_DATASETS, get_dataset_paths
 from api.sessions import AgentSession, InMemoryAgentSessionStore
 
 
 class FakeLLM:
-    def __init__(self, responses: list[CodeStep]) -> None:
+    def __init__(self, responses: list[tuple[type[BaseModel], BaseModel]]) -> None:
         self._responses = iter(responses)
 
-    async def generate(self, messages: list[dict[str, str]]) -> CodeStep:
-        return next(self._responses)
+    async def parse(
+        self,
+        messages: list[dict[str, str]],
+        response_model: type[BaseModel],
+    ) -> BaseModel:
+        expected_model, response = next(self._responses)
+        assert response_model is expected_model
+        return response
 
 
 def parse_sse_events(body: str) -> list[dict[str, object]]:
@@ -276,9 +284,26 @@ class TestMessagesRoute:
         session = session_store.get(session_id)
         session.agent.llm = FakeLLM(
             [
-                CodeStep(
-                    plan="Answer directly",
-                    code='final_answer([{"type": "markdown", "content": "done"}])',
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Answer directly",
+                        code='conclude_analysis("Done.")',
+                    ),
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="done",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
                 )
             ]
         )
@@ -290,7 +315,10 @@ class TestMessagesRoute:
 
         assert response.status_code == 200
         events = parse_sse_events(response.text)
-        assert [event["event"] for event in events] == ["thinking", "code", "answer"]
+        assert [event["event"] for event in events] == ["thinking", "code", "reviewing", "answer"]
+        assert events[-2]["data"] == {
+            "text": "Finalizing response from the analysis handoff."
+        }
         assert events[-1]["data"] == {
             "blocks": [{"type": "markdown", "content": "done"}]
         }
@@ -304,13 +332,47 @@ class TestMessagesRoute:
         session = session_store.get(session_id)
         session.agent.llm = FakeLLM(
             [
-                CodeStep(
-                    plan="Store a value",
-                    code='saved_total = 7\nfinal_answer([{"type": "markdown", "content": "Saved total."}])',
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Store a value",
+                        code='saved_total = 7\nconclude_analysis("Saved total.")',
+                    ),
                 ),
-                CodeStep(
-                    plan="Recall it",
-                    code='final_answer([{"type": "markdown", "content": str(saved_total)}])',
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="Saved total.",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
+                ),
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Recall it",
+                        code='conclude_analysis("The saved total is " + str(saved_total) + ".")',
+                    ),
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="7",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
                 ),
             ]
         )

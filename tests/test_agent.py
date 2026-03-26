@@ -1,23 +1,29 @@
 import pandas as pd
 import pytest
+from pydantic import BaseModel
 
-from agent.agent import Agent
-from agent.answer_blocks import ArtifactAnswerBlock, MarkdownAnswerBlock
+from agent.agent import Agent, CodeStep, FinalResponseBlock, FinalResponseReview
+from agent.answer_blocks import MarkdownAnswerBlock
 from agent.environment import Environment
-from agent.llm import CodeStep
 from agent.memory import Memory
 from agent.sandbox import ExecutionSandbox
 from agent.tools import Tools
 
 
 class FakeLLM:
-    def __init__(self, responses: list[CodeStep]) -> None:
+    def __init__(self, responses: list[tuple[type[BaseModel], BaseModel]]) -> None:
         self._responses = iter(responses)
-        self.calls: list[list[dict[str, str]]] = []
+        self.calls: list[tuple[type[BaseModel], list[dict[str, str]]]] = []
 
-    async def generate(self, messages: list[dict[str, str]]) -> CodeStep:
-        self.calls.append([message.copy() for message in messages])
-        return next(self._responses)
+    async def parse(
+        self,
+        messages: list[dict[str, str]],
+        response_model: type[BaseModel],
+    ) -> BaseModel:
+        self.calls.append((response_model, [message.copy() for message in messages]))
+        expected_model, response = next(self._responses)
+        assert response_model is expected_model
+        return response
 
 
 def make_agent(
@@ -54,22 +60,41 @@ class TestAgent:
     async def test_run_emits_thinking_code_and_answer_events(self):
         llm = FakeLLM(
             [
-                CodeStep(
-                    plan="Answer directly",
-                    code='final_answer([{"type": "markdown", "content": "done"}])',
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Answer directly",
+                        code='conclude_analysis("Done.")',
+                    ),
                 )
+                ,
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="done",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
+                ),
             ]
         )
         agent = make_agent(llm)
 
         events = [event async for event in agent.run("What happened?")]
 
-        assert [event.kind for event in events] == ["thinking", "code", "answer"]
+        assert [event.kind for event in events] == ["thinking", "code", "reviewing", "answer"]
         assert events[0].data == {"text": "Answer directly"}
         assert events[1].data == {
-            "text": 'final_answer([{"type": "markdown", "content": "done"}])'
+            "text": 'conclude_analysis("Done.")'
         }
-        assert events[2].data == {
+        assert events[2].data == {"text": "Finalizing response from the analysis handoff."}
+        assert events[3].data == {
             "blocks": [{"type": "markdown", "content": "done"}]
         }
 
@@ -77,38 +102,70 @@ class TestAgent:
     async def test_run_emits_artifacts_before_terminal_answer(self, orders_df):
         llm = FakeLLM(
             [
-                CodeStep(
-                    plan="Group by category and finish",
-                    code=(
-                        'grouped = group_by("orders", "category", "revenue", "sum")\n'
-                        'summary_table = publish_table(grouped, title="Revenue by category")\n'
-                        'final_answer([{"type": "markdown", "content": "done"}, {"type": "artifact", "artifact_id": summary_table}])'
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Group by category and finish",
+                        code=(
+                            'grouped = group_by("orders", "category", "revenue", "sum")\n'
+                            'summary_table = publish_table(grouped, title="Revenue by category")\n'
+                            'conclude_analysis("The table @"+summary_table+" shows category revenue.", [summary_table])'
+                        ),
                     ),
-                )
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="done",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
+                ),
             ]
         )
         agent = make_agent(llm, inputs={"orders": orders_df})
 
         events = [event async for event in agent.run("Summarize revenue by category.")]
 
-        assert [event.kind for event in events] == ["thinking", "code", "artifact", "artifact", "answer"]
+        assert [event.kind for event in events] == ["thinking", "code", "artifact", "artifact", "reviewing", "answer"]
         assert events[2].data["kind"] == "table"
         assert events[3].data["kind"] == "table"
-        assert events[4].data == {
-            "blocks": [
-                {"type": "markdown", "content": "done"},
-                {"type": "artifact", "artifact_id": events[3].data["id"]},
-            ]
+        assert events[4].data == {"text": "Finalizing response from the analysis handoff."}
+        assert events[5].data == {
+            "blocks": [{"type": "markdown", "content": "done"}]
         }
 
     @pytest.mark.asyncio
     async def test_run_retries_after_error_with_step_feedback(self):
         llm = FakeLLM(
             [
-                CodeStep(plan="Try bad code", code="1 / 0"),
-                CodeStep(
-                    plan="Fix it",
-                    code='final_answer([{"type": "markdown", "content": "fixed"}])',
+                (CodeStep, CodeStep(plan="Try bad code", code="1 / 0")),
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Fix it",
+                        code='conclude_analysis("Fixed.")',
+                    ),
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="fixed",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
                 ),
             ]
         )
@@ -122,11 +179,12 @@ class TestAgent:
             "error",
             "thinking",
             "code",
+            "reviewing",
             "answer",
         ]
-        assert len(llm.calls) == 2
+        assert len(llm.calls) == 3
 
-        second_call = llm.calls[1]
+        second_call = llm.calls[1][1]
         assert any(
             message["role"] == "assistant"
             and "Plan: Try bad code" in message["content"]
@@ -144,9 +202,9 @@ class TestAgent:
     async def test_run_stops_at_max_steps_and_emits_error(self):
         llm = FakeLLM(
             [
-                CodeStep(plan="Step 1", code="print('one')"),
-                CodeStep(plan="Step 2", code="print('two')"),
-                CodeStep(plan="Step 3", code="print('three')"),
+                (CodeStep, CodeStep(plan="Step 1", code="print('one')")),
+                (CodeStep, CodeStep(plan="Step 2", code="print('two')")),
+                (CodeStep, CodeStep(plan="Step 3", code="print('three')")),
             ]
         )
         agent = make_agent(llm, max_steps=2)
@@ -171,10 +229,28 @@ class TestAgent:
     async def test_run_records_memory_and_final_answer(self):
         llm = FakeLLM(
             [
-                CodeStep(
-                    plan="Inspect and answer",
-                    code='final_answer([{"type": "markdown", "content": "West wins"}])',
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Inspect and answer",
+                        code='conclude_analysis("West wins.")',
+                    ),
                 )
+                ,
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="West wins",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
+                ),
             ]
         )
         memory = Memory()
@@ -193,7 +269,7 @@ class TestAgent:
         assert memory.step_history[0].plan == "Inspect and answer"
         assert (
             memory.step_history[0].code
-            == 'final_answer([{"type": "markdown", "content": "West wins"}])'
+            == 'conclude_analysis("West wins.")'
         )
         assert memory.step_history[0].output is None
         assert memory.step_history[0].is_error is False
@@ -202,13 +278,47 @@ class TestAgent:
     async def test_reuses_memory_and_environment_across_turns(self):
         llm = FakeLLM(
             [
-                CodeStep(
-                    plan="Store a value",
-                    code='saved_total = 7\nfinal_answer([{"type": "markdown", "content": "Saved total."}])',
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Store a value",
+                        code='saved_total = 7\nconclude_analysis("Saved total.")',
+                    ),
                 ),
-                CodeStep(
-                    plan="Use prior workspace",
-                    code='final_answer([{"type": "markdown", "content": str(saved_total)}])',
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="Saved total.",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
+                ),
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Use prior workspace",
+                        code='conclude_analysis("The saved total is " + str(saved_total) + ".")',
+                    ),
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="7",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
                 ),
             ]
         )
@@ -227,7 +337,73 @@ class TestAgent:
         }
         assert environment.workspace["saved_total"] == 7
 
-        second_call = llm.calls[1]
+        second_call = llm.calls[2][1]
         assert {"role": "user", "content": "Store the total."} in second_call
         assert {"role": "assistant", "content": "Saved total."} in second_call
         assert {"role": "user", "content": "What total did you store?"} in second_call
+
+    @pytest.mark.asyncio
+    async def test_run_continues_same_loop_when_final_response_review_requests_more_analysis(
+        self,
+    ):
+        llm = FakeLLM(
+            [
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Draft a weak handoff",
+                        code='conclude_analysis("The table shows revenue.")',
+                    ),
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="needs_more_analysis",
+                        critique="State which region leads revenue and by how much.",
+                        blocks=[],
+                    ),
+                ),
+                (
+                    CodeStep,
+                    CodeStep(
+                        plan="Add the missing comparison",
+                        code='conclude_analysis("West leads revenue by a meaningful margin.")',
+                    ),
+                ),
+                (
+                    FinalResponseReview,
+                    FinalResponseReview(
+                        status="approved",
+                        critique=None,
+                        blocks=[
+                            FinalResponseBlock(
+                                type="markdown",
+                                content="West leads revenue.",
+                                artifact_id=None,
+                            )
+                        ],
+                    ),
+                ),
+            ]
+        )
+        agent = make_agent(llm)
+
+        events = [event async for event in agent.run("Which region leads revenue?")]
+
+        assert [event.kind for event in events] == [
+            "thinking",
+            "code",
+            "reviewing",
+            "thinking",
+            "code",
+            "reviewing",
+            "answer",
+        ]
+        assert len(llm.calls) == 4
+
+        third_call = llm.calls[2][1]
+        assert any(
+            message["role"] == "user"
+            and "State which region leads revenue and by how much." in message["content"]
+            for message in third_call
+        )

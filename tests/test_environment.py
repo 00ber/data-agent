@@ -1,8 +1,7 @@
 import pandas as pd
 import pytest
 
-from agent.answer_blocks import MarkdownAnswerBlock
-from agent.environment import Artifact, Environment, ExecutionResult
+from agent.environment import AnalysisHandoff, Artifact, Environment, ExecutionResult
 from agent.sandbox import ExecutionSandbox
 
 
@@ -32,13 +31,13 @@ class TestExecutionResult:
             events=[],
             output="OK",
             is_error=False,
-            final_answer=None,
+            analysis_handoff=None,
         )
 
         assert outcome.events == []
         assert outcome.output == "OK"
         assert outcome.is_error is False
-        assert outcome.final_answer is None
+        assert outcome.analysis_handoff is None
 
 
 class TestEnvironment:
@@ -71,7 +70,7 @@ class TestEnvironment:
 
         assert outcome.is_error is False
         assert outcome.output == str(len(orders_df))
-        assert outcome.final_answer is None
+        assert outcome.analysis_handoff is None
         assert [event.kind for event in outcome.events] == ["result"]
 
     def test_execute_can_access_pandas_and_numpy(self, orders_df, sandbox):
@@ -121,23 +120,82 @@ class TestEnvironment:
         outcome = environment.execute("1 / 0")
 
         assert outcome.is_error is True
-        assert outcome.final_answer is None
+        assert outcome.analysis_handoff is None
         assert "ZeroDivisionError" in outcome.output
         assert [event.kind for event in outcome.events] == ["error"]
 
-    def test_final_answer_is_returned_in_outcome(self, orders_df, sandbox):
+    def test_conclude_analysis_is_returned_in_outcome(self, orders_df, sandbox):
         environment = Environment(inputs={"orders": orders_df}, sandbox=sandbox)
 
         outcome = environment.execute(
-            'final_answer([{"type": "markdown", "content": "West leads revenue."}])'
+            'conclude_analysis("West leads revenue.")'
         )
 
         assert outcome.is_error is False
         assert outcome.output is None
-        assert outcome.final_answer == [
-            MarkdownAnswerBlock(content="West leads revenue.")
-        ]
+        assert outcome.analysis_handoff == AnalysisHandoff(
+            notes="West leads revenue.",
+            artifact_ids=[],
+        )
         assert outcome.events == []
+
+    def test_conclude_analysis_accepts_valid_inline_artifact_mentions(self, sandbox):
+        environment = Environment(inputs={}, sandbox=sandbox)
+
+        def publish_stat(execution_context, label: str, value: int) -> str:
+            artifact = execution_context.publish_artifact(
+                "stat",
+                label,
+                {"label": label, "value": value},
+            )
+            return artifact.id
+
+        environment.register_action("publish_stat", publish_stat)
+
+        outcome = environment.execute(
+            'artifact_id = publish_stat("Total Revenue", 42)\n'
+            'conclude_analysis("The stat @" + artifact_id + " shows total revenue.", [artifact_id])'
+        )
+
+        assert outcome.is_error is False
+        assert outcome.analysis_handoff == AnalysisHandoff(
+            notes=f"The stat @{environment.artifacts[0].id} shows total revenue.",
+            artifact_ids=[environment.artifacts[0].id],
+        )
+
+    def test_conclude_analysis_rejects_mentioned_artifact_missing_from_artifact_ids(
+        self,
+        sandbox,
+    ):
+        environment = Environment(inputs={}, sandbox=sandbox)
+
+        def publish_stat(execution_context, label: str, value: int) -> str:
+            artifact = execution_context.publish_artifact(
+                "stat",
+                label,
+                {"label": label, "value": value},
+            )
+            return artifact.id
+
+        environment.register_action("publish_stat", publish_stat)
+
+        outcome = environment.execute(
+            'artifact_id = publish_stat("Total Revenue", 42)\n'
+            'conclude_analysis("The stat @" + artifact_id + " shows total revenue.", [])'
+        )
+
+        assert outcome.is_error is True
+        assert "mentioned in notes must also appear in artifact_ids" in outcome.output
+
+    def test_conclude_analysis_rejects_unknown_artifact_ids(self, sandbox):
+        environment = Environment(inputs={}, sandbox=sandbox)
+
+        outcome = environment.execute(
+            'conclude_analysis("The stat @artifact_missing shows total revenue.", ["artifact_missing"])'
+        )
+
+        assert outcome.is_error is True
+        assert "Unknown artifact reference 'artifact_missing'" in outcome.output
 
     def test_publish_artifact_stores_artifact_and_emits_event_during_execution(
         self,

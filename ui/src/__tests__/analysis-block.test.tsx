@@ -55,6 +55,16 @@ const completedBlock: AnalysisBlockType = {
   collapsed: false,
 }
 
+const emptyStreamingBlock: AnalysisBlockType = {
+  id: 'analysis-streaming',
+  query: 'Which region leads revenue?',
+  turns: [],
+  artifacts: [],
+  answerBlocks: null,
+  status: 'streaming',
+  collapsed: false,
+}
+
 
 describe('AnalysisBlock', () => {
   beforeEach(() => {
@@ -74,7 +84,7 @@ describe('AnalysisBlock', () => {
   it('keeps the trace collapsed behind a summary bar after a run completes', () => {
     render(<AnalysisBlock block={completedBlock} />)
 
-    expect(screen.getByText('Behind the answer')).toBeTruthy()
+    expect(screen.getByText('Trace')).toBeTruthy()
     expect(
       screen.queryByText('grouped = group_by("orders", "segment", "total", "sum")'),
     ).toBeNull()
@@ -85,7 +95,8 @@ describe('AnalysisBlock', () => {
 
     const initialConsumerCells = screen.getAllByText('Consumer').length
 
-    fireEvent.click(screen.getByRole('button', { name: /behind the answer/i }))
+    fireEvent.click(screen.getByRole('button', { name: /trace/i }))
+    fireEvent.click(screen.getByRole('button', { name: /trace thought 1/i }))
     fireEvent.click(screen.getByRole('button', { name: /revenue by segment/i }))
 
     expect(screen.getAllByText('Consumer').length).toBeGreaterThan(initialConsumerCells)
@@ -100,15 +111,58 @@ describe('AnalysisBlock', () => {
     expect(screen.getAllByText('Revenue by segment').length).toBeGreaterThan(0)
   })
 
-  it('opens a provenance workspace with selectable turns when requested', () => {
+  it('opens a row-based trace without selecting the first thought by default', () => {
     render(<AnalysisBlock block={completedBlock} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /behind the answer/i }))
+    fireEvent.click(screen.getByRole('button', { name: /trace/i }))
 
-    expect(screen.getByText('Reasoning workspace')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /turn 1/i })).toBeTruthy()
-    expect(screen.getByText('Thought')).toBeTruthy()
-    expect(screen.getByText('Code')).toBeTruthy()
-    expect(screen.getByText('Result')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /trace thought 1/i })).toBeTruthy()
+    expect(screen.queryByText('Thought')).toBeNull()
+    expect(screen.queryByText('Result')).toBeNull()
+    expect(
+      screen.queryByText('grouped = group_by("orders", "segment", "total", "sum")'),
+    ).toBeNull()
+  })
+
+  it('keeps expanded-thought code collapsed until explicitly opened', () => {
+    render(<AnalysisBlock block={completedBlock} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /trace/i }))
+    fireEvent.click(screen.getByRole('button', { name: /trace thought 1/i }))
+
+    expect(
+      screen.queryByText('grouped = group_by("orders", "segment", "total", "sum")'),
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /show code/i }))
+
+    expect(
+      screen.getByText('grouped = group_by("orders", "segment", "total", "sum")'),
+    ).toBeTruthy()
+  })
+
+  it('can transition from no turns to a live turn without tripping React hook state', () => {
+    const { rerender } = render(<AnalysisBlock block={emptyStreamingBlock} />)
+
+    rerender(
+      <AnalysisBlock
+        block={{
+          ...emptyStreamingBlock,
+          turns: [
+            {
+              id: 'turn-live',
+              thought: 'Compare revenue by region.',
+              code: 'grouped = group_by("orders", "region", "total", "sum")',
+              artifacts: [],
+              result: null,
+              error: null,
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(screen.getAllByText('Compare revenue by region.').length).toBeGreaterThan(0)
+    expect(screen.getByText('Trace')).toBeTruthy()
   })
 })

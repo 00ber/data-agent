@@ -111,6 +111,13 @@ function completeAnalysis(block: AnalysisBlock, answerBlocks: AnswerBlockData[])
   }
 }
 
+function markAnalysisAsReviewing(block: AnalysisBlock): AnalysisBlock {
+  return {
+    ...block,
+    status: 'reviewing',
+  }
+}
+
 export const useStore = create<StoreState>((set, get) => ({
   // Initial state
   sessionId: null,
@@ -196,6 +203,9 @@ export const useStore = create<StoreState>((set, get) => ({
           break
         case 'artifact':
           updated = appendArtifact(current, event.data as unknown as ArtifactData)
+          break
+        case 'reviewing':
+          updated = markAnalysisAsReviewing(current)
           break
         case 'result':
           updated = appendResult(current, String(event.data.text ?? ''))
