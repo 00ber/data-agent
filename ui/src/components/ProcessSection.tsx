@@ -86,20 +86,20 @@ export default function ProcessSection({
       <button
         onClick={onToggle}
         aria-label="Trace"
-        className="mt-4 flex w-full items-center justify-between rounded-2xl border border-border/70
-                   bg-white/55 px-4 py-4 text-left text-sm text-text-secondary transition-colors
-                   hover:border-accent/20 hover:text-text"
+        className="mt-5 flex w-full items-center justify-between rounded-2xl border border-border/55
+                   bg-white/45 px-4 py-3 text-left text-sm text-text-secondary transition-colors
+                   hover:border-accent/18 hover:text-text"
       >
         <div className="min-w-0">
           <span className="flex items-center gap-2">
             <ChevronRight className="h-4 w-4" />
-            <span className="font-medium text-text">Trace</span>
+            <span className="text-[12px] font-semibold uppercase tracking-[0.16em] text-text">Trace</span>
           </span>
-          <p className="mt-1 truncate text-sm text-text-secondary">
+          <p className="mt-1 truncate text-sm leading-6 text-text-secondary">
             {previewThought(latestTurn)}
           </p>
         </div>
-        <span className="shrink-0 pl-4 text-xs uppercase tracking-[0.16em] text-text-muted">
+        <span className="shrink-0 pl-4 text-[11px] uppercase tracking-[0.16em] text-text-muted">
           {summary}
         </span>
       </button>
@@ -107,16 +107,16 @@ export default function ProcessSection({
   }
 
   return (
-    <section className="mt-4 overflow-hidden rounded-[1.35rem] border border-border/70 bg-white/45 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+    <section className="mt-5 overflow-hidden rounded-[1.2rem] border border-border/55 bg-white/35">
       <button
         onClick={onToggle}
-        className="flex w-full items-center justify-between border-b border-border/60
-                   bg-white/40 px-4 py-3 text-left transition-colors hover:bg-white/55"
+        className="flex w-full items-center justify-between border-b border-border/55
+                   bg-white/30 px-4 py-3 text-left transition-colors hover:bg-white/45"
       >
         <div className="min-w-0">
           <span className="flex items-center gap-2">
             <ChevronDown className="h-4 w-4 text-text-muted" />
-            <span className="text-sm font-semibold text-text">Trace</span>
+            <span className="text-[12px] font-semibold uppercase tracking-[0.16em] text-text">Trace</span>
           </span>
           <p className="mt-1 text-sm text-text-secondary">
             Open any thought to inspect its details.
@@ -129,7 +129,7 @@ export default function ProcessSection({
 
       <div className="space-y-3 p-4">
         {status === 'reviewing' && (
-          <div className="rounded-2xl border border-[rgba(245,158,11,0.18)] bg-[rgba(255,251,235,0.85)] px-3 py-3 text-sm leading-6 text-[rgb(146,64,14)]">
+          <div className="rounded-2xl border border-[rgba(245,158,11,0.16)] bg-[rgba(255,251,235,0.78)] px-3 py-3 text-sm leading-6 text-[rgb(146,64,14)]">
             Analysis is complete. The agent is reviewing the handoff and composing the final response.
           </div>
         )}
@@ -143,7 +143,7 @@ export default function ProcessSection({
           return (
             <article
               key={turn.id}
-              className={`overflow-hidden rounded-[1.15rem] border transition-colors ${turnBadgeClass(turn, isExpanded)}`}
+              className={`overflow-hidden rounded-[1.1rem] border transition-colors ${turnBadgeClass(turn, isExpanded)}`}
             >
               <button
                 aria-label={`Trace thought ${index + 1}`}
@@ -153,7 +153,7 @@ export default function ProcessSection({
                     setCodeTurnId(null)
                   }
                 }}
-                className="flex w-full items-start justify-between gap-3 px-4 py-4 text-left"
+                className="flex w-full items-start justify-between gap-3 px-4 py-3.5 text-left"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -196,12 +196,12 @@ export default function ProcessSection({
               </button>
 
               {isExpanded && (
-                <div className="border-t border-border/60 bg-white/45 px-4 py-4">
+                <div className="border-t border-border/55 bg-white/35 px-4 py-4">
                   <div>
                     <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
                       Thought
                     </div>
-                    <p className="rounded-2xl bg-surface px-3 py-3 text-sm leading-6 text-text">
+                    <p className="rounded-2xl bg-surface/80 px-3 py-3 text-sm leading-6 text-text">
                       {turn.thought}
                     </p>
                   </div>
@@ -212,7 +212,7 @@ export default function ProcessSection({
                         onClick={() =>
                           setCodeTurnId((current) => (current === turn.id ? null : turn.id))
                         }
-                        className="flex w-full items-center justify-between rounded-2xl border border-border/70 bg-surface px-3 py-3 text-left transition-colors hover:border-accent/20 hover:text-text"
+                        className="flex w-full items-center justify-between rounded-2xl border border-border/65 bg-surface/80 px-3 py-3 text-left transition-colors hover:border-accent/20 hover:text-text"
                         aria-label={isCodeExpanded ? 'Hide code' : 'Show code'}
                       >
                         <span className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
@@ -248,7 +248,7 @@ export default function ProcessSection({
                       <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
                         Result
                       </div>
-                      <p className="rounded-2xl bg-surface px-3 py-3 text-sm leading-6 text-text-secondary">
+                      <p className="rounded-2xl bg-surface/80 px-3 py-3 text-sm leading-6 text-text-secondary">
                         {turn.result}
                       </p>
                     </div>

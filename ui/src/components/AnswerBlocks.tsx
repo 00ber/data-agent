@@ -62,32 +62,32 @@ function MarkdownBlock({ block }: { block: MarkdownAnswerBlockData }) {
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h1 className="text-3xl font-semibold tracking-[-0.02em] text-text">
+            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-text">
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="mt-8 text-2xl font-semibold tracking-[-0.02em] text-text">
+            <h2 className="mt-10 text-[1.65rem] font-semibold tracking-[-0.03em] text-text">
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mt-6 text-lg font-semibold text-text">
+            <h3 className="mt-7 text-lg font-semibold text-text">
               {children}
             </h3>
           ),
           p: ({ children }) => (
-            <p className="mt-4 text-[15px] leading-8 text-text-secondary first:mt-0">
+            <p className="mt-4 max-w-3xl text-[16px] leading-8 text-text-secondary first:mt-0">
               {children}
             </p>
           ),
           ul: ({ children }) => (
-            <ul className="mt-4 list-disc space-y-2 pl-6 text-[15px] leading-8 text-text-secondary">
+            <ul className="mt-4 max-w-3xl list-disc space-y-2 pl-6 text-[16px] leading-8 text-text-secondary">
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="mt-4 list-decimal space-y-2 pl-6 text-[15px] leading-8 text-text-secondary">
+            <ol className="mt-4 max-w-3xl list-decimal space-y-2 pl-6 text-[16px] leading-8 text-text-secondary">
               {children}
             </ol>
           ),
@@ -117,7 +117,7 @@ export default function AnswerBlocks({ blocks, artifacts }: AnswerBlocksProps) {
   const setOverlay = useStore((state) => state.setOverlay)
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       {blocks.map((block, index) => {
         if (block.type === 'markdown') {
           return <MarkdownBlock key={`markdown-${index}`} block={block} />
@@ -127,31 +127,33 @@ export default function AnswerBlocks({ blocks, artifacts }: AnswerBlocksProps) {
         if (!artifact) return null
 
         return (
-          <section
+          <figure
             key={artifact.id}
-            className="overflow-hidden rounded-[1.5rem] border border-border/70 bg-surface/85 shadow-[0_18px_40px_rgba(15,23,42,0.04)]"
+            className="border-t border-border/45 pt-5 first:border-t-0 first:pt-0"
           >
-            <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-surface-alt/40 px-5 py-4">
+            <figcaption className="mb-4 flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-base font-semibold text-text">
-                  {artifact.title}
-                </p>
-                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-text-muted">
+                <p className="truncate text-sm font-semibold uppercase tracking-[0.14em] text-text-muted">
                   {artifact.kind}
+                </p>
+                <p className="mt-1 truncate text-lg font-semibold text-text">
+                  {artifact.title}
                 </p>
               </div>
               <button
                 onClick={() => setOverlay(artifact.id)}
-                className="rounded-xl border border-border bg-surface p-2 text-text-secondary transition-colors hover:bg-surface-alt hover:text-text"
+                className="rounded-xl border border-border/70 bg-white/80 p-2 text-text-secondary transition-colors hover:border-accent/20 hover:text-text"
                 title="Open in overlay"
               >
                 <Maximize2 className="h-3.5 w-3.5" />
               </button>
+            </figcaption>
+            <div className="overflow-hidden rounded-[1.4rem] border border-border/65 bg-surface/88">
+              <div className="px-5 py-5">
+                {renderArtifactBody(artifact)}
+              </div>
             </div>
-            <div className="px-5 py-5">
-              {renderArtifactBody(artifact)}
-            </div>
-          </section>
+          </figure>
         )
       })}
     </div>

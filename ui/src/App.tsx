@@ -36,7 +36,7 @@ export default function App() {
             <DataBar />
             <DataPanel />
             <main className="mx-auto flex w-full max-w-6xl flex-1 overflow-y-auto px-4 py-8">
-              <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+              <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
                 <AnalysisStream />
                 <Suggestions />
               </div>

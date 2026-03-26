@@ -14,9 +14,9 @@ export default function AnalysisStream() {
   if (analyses.length === 0) return null
 
   return (
-    <div className="w-full space-y-4">
-      {analyses.map((block) => (
-        <AnalysisBlock key={block.id} block={block} />
+    <div className="w-full divide-y divide-border/45">
+      {analyses.map((block, index) => (
+        <AnalysisBlock key={block.id} block={block} isFirst={index === 0} />
       ))}
       <div ref={bottomRef} />
     </div>

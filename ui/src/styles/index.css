@@ -33,3 +33,7 @@ body {
 #root {
   min-height: 100vh;
 }
+
+.answer-markdown > *:first-child {
+  margin-top: 0;
+}
