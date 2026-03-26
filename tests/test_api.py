@@ -275,7 +275,12 @@ class TestMessagesRoute:
         session_id = client.post("/api/sessions", json={}).json()["session_id"]
         session = session_store.get(session_id)
         session.agent.llm = FakeLLM(
-            [CodeStep(plan="Answer directly", code="final_answer('done')")]
+            [
+                CodeStep(
+                    plan="Answer directly",
+                    code='final_answer([{"type": "markdown", "content": "done"}])',
+                )
+            ]
         )
 
         response = client.post(
@@ -286,7 +291,9 @@ class TestMessagesRoute:
         assert response.status_code == 200
         events = parse_sse_events(response.text)
         assert [event["event"] for event in events] == ["thinking", "code", "answer"]
-        assert events[-1]["data"] == {"text": "done"}
+        assert events[-1]["data"] == {
+            "blocks": [{"type": "markdown", "content": "done"}]
+        }
 
     def test_same_session_preserves_memory_workspace_and_artifacts(
         self,
@@ -299,11 +306,11 @@ class TestMessagesRoute:
             [
                 CodeStep(
                     plan="Store a value",
-                    code="saved_total = 7\nfinal_answer('Saved total.')",
+                    code='saved_total = 7\nfinal_answer([{"type": "markdown", "content": "Saved total."}])',
                 ),
                 CodeStep(
                     plan="Recall it",
-                    code="final_answer(str(saved_total))",
+                    code='final_answer([{"type": "markdown", "content": str(saved_total)}])',
                 ),
             ]
         )
@@ -328,7 +335,9 @@ class TestMessagesRoute:
         ]
 
         second_events = parse_sse_events(second.text)
-        assert second_events[-1]["data"] == {"text": "7"}
+        assert second_events[-1]["data"] == {
+            "blocks": [{"type": "markdown", "content": "7"}]
+        }
 
 
 class TestSuggestionsRoute:

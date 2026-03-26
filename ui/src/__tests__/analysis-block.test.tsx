@@ -41,9 +41,16 @@ const completedBlock: AnalysisBlockType = {
       },
     },
   ],
-  responseArtifactIds: ['artifact-1'],
-  pendingArtifactIds: [],
-  answer: 'Consumer leads revenue.',
+  answerBlocks: [
+    {
+      type: 'markdown',
+      content: 'Consumer leads revenue.',
+    },
+    {
+      type: 'artifact',
+      artifact_id: 'artifact-1',
+    },
+  ],
   status: 'complete',
   collapsed: false,
 }
@@ -64,37 +71,42 @@ describe('AnalysisBlock', () => {
     })
   })
 
-  it('keeps the process trace visible after a run completes', () => {
+  it('keeps the trace collapsed behind a summary bar after a run completes', () => {
     render(<AnalysisBlock block={completedBlock} />)
 
-    expect(screen.getByText('Reasoning trace')).toBeTruthy()
-    expect(screen.getAllByText('Inspect revenue by segment and region.').length).toBeGreaterThan(0)
+    expect(screen.getByText('Behind the answer')).toBeTruthy()
     expect(
-      screen.getByText('grouped = group_by("orders", "segment", "total", "sum")'),
-    ).toBeTruthy()
+      screen.queryByText('grouped = group_by("orders", "segment", "total", "sum")'),
+    ).toBeNull()
   })
 
   it('expands response artifacts by default and still lets trace artifacts toggle open', () => {
     render(<AnalysisBlock block={completedBlock} />)
 
-    expect(screen.getByText('Consumer')).toBeTruthy()
+    const initialConsumerCells = screen.getAllByText('Consumer').length
 
-    fireEvent.click(screen.getAllByRole('button', { name: /revenue by segment/i })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: /behind the answer/i }))
+    fireEvent.click(screen.getByRole('button', { name: /revenue by segment/i }))
 
-    expect(screen.getAllByText('Consumer').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Consumer').length).toBeGreaterThan(initialConsumerCells)
   })
 
-  it('shows response artifacts near the final answer and not as a global artifact dump', () => {
+  it('renders inline answer blocks and removes the old evidence header', () => {
     render(<AnalysisBlock block={completedBlock} />)
 
-    expect(screen.getByText('Evidence')).toBeTruthy()
-    expect(screen.getByText(/^Artifacts$/)).toBeTruthy()
+    expect(screen.queryByText('Final answer')).toBeNull()
+    expect(screen.queryByText('Evidence')).toBeNull()
+    expect(screen.getByText('Consumer leads revenue.')).toBeTruthy()
+    expect(screen.getAllByText('Revenue by segment').length).toBeGreaterThan(0)
   })
 
-  it('renders grouped reasoning turns instead of a flat event list', () => {
+  it('opens a provenance workspace with selectable turns when requested', () => {
     render(<AnalysisBlock block={completedBlock} />)
 
-    expect(screen.getByText('Turn 1')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /behind the answer/i }))
+
+    expect(screen.getByText('Reasoning workspace')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /turn 1/i })).toBeTruthy()
     expect(screen.getByText('Thought')).toBeTruthy()
     expect(screen.getByText('Code')).toBeTruthy()
     expect(screen.getByText('Result')).toBeTruthy()

@@ -1,6 +1,11 @@
 """Public package surface for the rewritten agent core."""
 
 from agent.agent import Agent
+from agent.answer_blocks import (
+    AnswerBlock,
+    ArtifactAnswerBlock,
+    MarkdownAnswerBlock,
+)
 from agent.environment import (
     Artifact,
     Environment,
@@ -16,7 +21,9 @@ from agent.tools import Tools
 
 __all__ = [
     "Agent",
+    "AnswerBlock",
     "Artifact",
+    "ArtifactAnswerBlock",
     "CodeStep",
     "Environment",
     "Event",
@@ -26,6 +33,7 @@ __all__ = [
     "ExecutionSandbox",
     "LLM",
     "Memory",
+    "MarkdownAnswerBlock",
     "OpenAILLM",
     "SandboxResult",
     "StepRecord",

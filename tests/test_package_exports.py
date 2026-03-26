@@ -1,6 +1,8 @@
 from agent import (
     Agent,
+    AnswerBlock,
     Artifact,
+    ArtifactAnswerBlock,
     CodeStep,
     Environment,
     Event,
@@ -10,6 +12,7 @@ from agent import (
     ExecutionSandbox,
     LLM,
     Memory,
+    MarkdownAnswerBlock,
     OpenAILLM,
     SandboxResult,
     StepRecord,
@@ -24,7 +27,9 @@ from agent import __all__
 class TestPackageExports:
     def test_exports_clean_public_api(self):
         assert Agent.__name__ == "Agent"
+        assert AnswerBlock.__args__
         assert Artifact.__name__ == "Artifact"
+        assert ArtifactAnswerBlock.__name__ == "ArtifactAnswerBlock"
         assert CodeStep.__name__ == "CodeStep"
         assert Environment.__name__ == "Environment"
         assert Event.__name__ == "Event"
@@ -34,6 +39,7 @@ class TestPackageExports:
         assert ExecutionSandbox.__name__ == "ExecutionSandbox"
         assert LLM.__name__ == "LLM"
         assert Memory.__name__ == "Memory"
+        assert MarkdownAnswerBlock.__name__ == "MarkdownAnswerBlock"
         assert OpenAILLM.__name__ == "OpenAILLM"
         assert SandboxResult.__name__ == "SandboxResult"
         assert StepRecord.__name__ == "StepRecord"
@@ -46,7 +52,9 @@ class TestPackageExports:
         assert sorted(__all__) == sorted(
             [
                 "Agent",
+                "AnswerBlock",
                 "Artifact",
+                "ArtifactAnswerBlock",
                 "CodeStep",
                 "Environment",
                 "Event",
@@ -56,6 +64,7 @@ class TestPackageExports:
                 "ExecutionSandbox",
                 "LLM",
                 "Memory",
+                "MarkdownAnswerBlock",
                 "OpenAILLM",
                 "SandboxResult",
                 "StepRecord",

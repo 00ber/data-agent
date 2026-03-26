@@ -9,6 +9,7 @@ import uuid
 import numpy as np
 import pandas as pd
 
+from agent.answer_blocks import AnswerBlock, coerce_answer_blocks
 from agent.events import Event
 from agent.sandbox import ExecutionSandbox, SandboxResult, SandboxStop
 from agent.validation import require_text
@@ -35,7 +36,7 @@ class ExecutionResult:
     events: list[Event]
     output: str | None
     is_error: bool
-    final_answer: str | None
+    final_answer: list[AnswerBlock] | None
 
 
 @dataclass
@@ -81,11 +82,14 @@ class ExecutionContext:
         )
         return artifact
 
-    def final_answer(self, answer: str) -> None:
-        """Stop this execution with a validated final answer."""
+    def final_answer(self, blocks: Any) -> None:
+        """Stop this execution with validated structured answer blocks."""
 
-        normalized_answer = require_text(answer, "Final answer")
-        raise SandboxStop(normalized_answer)
+        normalized_blocks = coerce_answer_blocks(
+            blocks,
+            available_artifact_ids={artifact.id for artifact in self.environment.artifacts},
+        )
+        raise SandboxStop(normalized_blocks)
 
     def success_outcome(self, result: SandboxResult) -> ExecutionResult:
         """Build the outcome for one successful sandbox execution."""
@@ -112,12 +116,14 @@ class ExecutionContext:
     def final_answer_outcome(self, value: Any) -> ExecutionResult:
         """Build the outcome for one terminal final answer."""
 
-        final_answer = require_text(value, "Final answer")
+        if not isinstance(value, list):
+            raise ValueError("Final answer must contain structured blocks.")
+
         return ExecutionResult(
             events=[*self.pending_events],
             output=None,
             is_error=False,
-            final_answer=final_answer,
+            final_answer=value,
         )
 
     def _bind_actions(self) -> dict[str, Callable[..., Any]]:

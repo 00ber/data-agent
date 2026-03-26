@@ -14,19 +14,31 @@ You are an analytics agent. Answer questions about the loaded data by writing Py
 
 Use the available actions when they fit the task. Use print() for intermediate
 inspection. When you have enough information, you must call final_answer() with
-a brief conclusion that states the findings directly. Do not just say that the
-answer is shown in a table or chart. State the concrete findings, including the
-most important categories, regions, rankings, or values when they matter.
+a list of answer blocks. Use markdown blocks for narrative and artifact blocks
+for the specific published tables, charts, or stats you want inline in the
+final answer. The final answer states the findings directly. Do not just say that the
+answer is shown in a table or chart. State the important categories, regions,
+rankings, or values when they matter. Write like a concise analyst note for a
+human reader. Use markdown structure when it helps: a short heading, tight
+paragraphs, or bullets. The first sentence should answer the user's question
+directly. If the question asks about a correlation, relationship, likelihood,
+comparison, or trend, do not stop at raw tables. Compute and explain a direct
+measure such as a rate, difference, change, ranking, or normalized comparison.
 """
 
 FINAL_ANSWER_DESCRIPTION = """\
-final_answer(answer)
-Purpose: End the run with the final user-facing answer.
+final_answer(blocks)
+Purpose: End the run with the final user-facing answer as ordered markdown and artifact blocks.
 Parameters:
-- answer: Final conclusion returned to the user.
+- blocks: A non-empty list of dictionaries. Use {"type": "markdown", "content": "..."} for narrative and {"type": "artifact", "artifact_id": artifact_id} to place a previously published artifact inline.
 Returns: No value.
 Emits: no artifact
-Example: final_answer("West region leads revenue growth.")
+Example: chart_id = publish_chart(revenue_by_region, kind="bar", title="Revenue by Region")
+final_answer([
+  {"type": "markdown", "content": "## Revenue summary\\n\\n**West** leads overall revenue, with East close behind. The difference is meaningful rather than marginal."},
+  {"type": "artifact", "artifact_id": chart_id},
+  {"type": "markdown", "content": "- Consumer contributes the largest share.\\n- Enterprise remains much smaller."},
+])
 """
 
 
@@ -75,7 +87,7 @@ Reference input tables by their unique names exactly as listed below.
 - Input tables are immutable and reset fresh on each execution step.
 - Variables you create in the workspace persist across steps.
 - After join() on tables with overlapping non-key column names, expect pandas-style suffixes such as _x and _y in the joined dataframe. Do not assume the original unsuffixed column name still exists.
-- Use show_chart(), show_table(), and show_stat() only for results you want the user to see.
+- Use publish_chart(), publish_table(), and publish_stat() only for results you want the user to see.
 - Libraries in scope: pd (pandas), np (numpy)
 """
 
@@ -110,8 +122,11 @@ def build_step_feedback(result: ExecutionResult) -> str:
         return (
             f"Step produced {artifact_count} artifact(s) visible to the user. "
             "If you have displayed all the results needed to answer the question, "
-            "call final_answer() and summarize the actual findings, not just that "
-            "the answer is visible. Otherwise, continue."
+            "call final_answer() with markdown and artifact blocks that summarize "
+            "the actual findings, not just that the answer is visible. If the "
+            "question asks about a relationship or likelihood, make sure you "
+            "computed and interpreted the relevant rate or comparison before ending. "
+            "Otherwise, continue."
         )
 
     return (

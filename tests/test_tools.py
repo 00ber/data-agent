@@ -217,12 +217,18 @@ class TestJoin:
 
 
 class TestShowChart:
-    def test_emits_chart_artifact(self, tools, execution_context):
+    def test_emits_chart_artifact_and_returns_artifact_id(self, tools, execution_context):
         df = pd.DataFrame({"quarter": ["Q1", "Q2"], "revenue": [100, 200]})
 
-        result = tools.show_chart(execution_context, df, kind="bar", title="Revenue by Quarter")
+        result = tools.publish_chart(
+            execution_context,
+            df,
+            kind="bar",
+            title="Revenue by Quarter",
+        )
 
-        assert result == "Displayed bar chart: Revenue by Quarter"
+        assert isinstance(result, str)
+        assert result.startswith("artifact_")
         assert execution_context.pending_events[0].data["kind"] == "chart"
         assert execution_context.pending_events[0].data["title"] == "Revenue by Quarter"
 
@@ -230,24 +236,26 @@ class TestShowChart:
         df = pd.DataFrame({"x": [1]})
 
         with pytest.raises(ValueError, match="Unknown chart type: 'heatmap'"):
-            tools.show_chart(execution_context, df, kind="heatmap", title="Test")
+            tools.publish_chart(execution_context, df, kind="heatmap", title="Test")
 
 
 class TestShowTable:
-    def test_emits_table_artifact(self, tools, execution_context):
+    def test_emits_table_artifact_and_returns_artifact_id(self, tools, execution_context):
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
 
-        result = tools.show_table(execution_context, df, title="My Table")
+        result = tools.publish_table(execution_context, df, title="My Table")
 
-        assert result == "Displayed table: My Table (2 rows)"
+        assert isinstance(result, str)
+        assert result.startswith("artifact_")
         assert execution_context.pending_events[0].data["kind"] == "table"
 
 
 class TestShowStat:
-    def test_emits_stat_artifact(self, tools, execution_context):
-        result = tools.show_stat(execution_context, "Total Revenue", 8200000)
+    def test_emits_stat_artifact_and_returns_artifact_id(self, tools, execution_context):
+        result = tools.publish_stat(execution_context, "Total Revenue", 8200000)
 
-        assert result == "Displayed stat: Total Revenue = 8200000"
+        assert isinstance(result, str)
+        assert result.startswith("artifact_")
         assert execution_context.pending_events[0].data["kind"] == "stat"
         assert execution_context.pending_events[0].data["data"]["value"] == 8200000
 

@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import type { TableMeta, AnalysisBlock, ArtifactData, AgentEvent, TraceTurn } from './types'
+import type {
+  TableMeta,
+  AnalysisBlock,
+  ArtifactData,
+  AgentEvent,
+  TraceTurn,
+  AnswerBlockData,
+} from './types'
 import * as api from './api'
 
 interface StoreState {
@@ -31,18 +38,6 @@ interface StoreState {
 
 // Internal: stored outside Zustand to avoid serialization issues
 let _closeStream: (() => void) | null = null
-
-function flushPendingArtifacts(block: AnalysisBlock): AnalysisBlock {
-  if (block.pendingArtifactIds.length === 0) {
-    return block
-  }
-
-  return {
-    ...block,
-    responseArtifactIds: block.pendingArtifactIds,
-    pendingArtifactIds: [],
-  }
-}
 
 function buildTurnId(): string {
   return crypto.randomUUID()
@@ -93,7 +88,6 @@ function appendArtifact(block: AnalysisBlock, artifact: ArtifactData): AnalysisB
   return {
     ...updatedBlock,
     artifacts: [...updatedBlock.artifacts, artifact],
-    pendingArtifactIds: [...updatedBlock.pendingArtifactIds, artifact.id],
   }
 }
 
@@ -102,24 +96,17 @@ function appendCode(block: AnalysisBlock, code: string): AnalysisBlock {
 }
 
 function appendResult(block: AnalysisBlock, result: string): AnalysisBlock {
-  const updatedBlock = flushPendingArtifacts(block)
-  return updateCurrentTurn(updatedBlock, (turn) => ({ ...turn, result }))
+  return updateCurrentTurn(block, (turn) => ({ ...turn, result }))
 }
 
 function appendError(block: AnalysisBlock, error: string): AnalysisBlock {
-  const updatedBlock = updateCurrentTurn(block, (turn) => ({ ...turn, error }))
-  return {
-    ...updatedBlock,
-    pendingArtifactIds: [],
-  }
+  return updateCurrentTurn(block, (turn) => ({ ...turn, error }))
 }
 
-function completeAnalysis(block: AnalysisBlock, answer: string): AnalysisBlock {
-  const updatedBlock = flushPendingArtifacts(block)
-
+function completeAnalysis(block: AnalysisBlock, answerBlocks: AnswerBlockData[]): AnalysisBlock {
   return {
-    ...updatedBlock,
-    answer,
+    ...block,
+    answerBlocks,
     status: 'complete',
   }
 }
@@ -178,9 +165,7 @@ export const useStore = create<StoreState>((set, get) => ({
       query: message,
       turns: [],
       artifacts: [],
-      responseArtifactIds: [],
-      pendingArtifactIds: [],
-      answer: null,
+      answerBlocks: null,
       status: 'streaming',
       collapsed: false,
     }
@@ -219,7 +204,10 @@ export const useStore = create<StoreState>((set, get) => ({
           updated = appendError(current, String(event.data.text ?? ''))
           break
         case 'answer':
-          updated = completeAnalysis(current, String(event.data.text ?? ''))
+          updated = completeAnalysis(
+            current,
+            (event.data.blocks as AnswerBlockData[] | undefined) ?? [],
+          )
           break
       }
 

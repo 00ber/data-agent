@@ -2,6 +2,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from agent.answer_blocks import ArtifactAnswerBlock, MarkdownAnswerBlock
 from agent.memory import Memory, StepRecord
 
 
@@ -114,25 +115,38 @@ class TestMemory:
         memory = Memory()
 
         memory.record_user_turn("What drives revenue?")
-        memory.record_final_answer("West region leads revenue.")
+        memory.record_final_answer(
+            [
+                MarkdownAnswerBlock(content="West region leads revenue."),
+                ArtifactAnswerBlock(artifact_id="artifact_1"),
+            ],
+            artifact_titles={"artifact_1": "Revenue by region"},
+        )
 
         assert memory.conversation_messages() == [
             {"role": "user", "content": "What drives revenue?"},
-            {"role": "assistant", "content": "West region leads revenue."},
+            {
+                "role": "assistant",
+                "content": "West region leads revenue.\n\n[Artifact: Revenue by region]",
+            },
         ]
 
     def test_tracks_final_answers_separately(self):
         memory = Memory()
 
-        memory.record_final_answer("West region leads revenue.")
+        memory.record_final_answer(
+            [MarkdownAnswerBlock(content="West region leads revenue.")]
+        )
 
-        assert memory.final_answers == ["West region leads revenue."]
+        assert memory.final_answers == [
+            [MarkdownAnswerBlock(content="West region leads revenue.")]
+        ]
 
-    def test_rejects_blank_final_answer(self):
+    def test_rejects_empty_final_answer_blocks(self):
         memory = Memory()
 
-        with pytest.raises(ValueError, match="Final answer must be a non-empty string."):
-            memory.record_final_answer("")
+        with pytest.raises(ValueError, match="Final answer must contain at least one block."):
+            memory.record_final_answer([])
 
     def test_conversation_messages_returns_a_copy(self):
         memory = Memory()

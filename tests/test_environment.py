@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from agent.answer_blocks import MarkdownAnswerBlock
 from agent.environment import Artifact, Environment, ExecutionResult
 from agent.sandbox import ExecutionSandbox
 
@@ -127,11 +128,15 @@ class TestEnvironment:
     def test_final_answer_is_returned_in_outcome(self, orders_df, sandbox):
         environment = Environment(inputs={"orders": orders_df}, sandbox=sandbox)
 
-        outcome = environment.execute("final_answer('West leads revenue.')")
+        outcome = environment.execute(
+            'final_answer([{"type": "markdown", "content": "West leads revenue."}])'
+        )
 
         assert outcome.is_error is False
         assert outcome.output is None
-        assert outcome.final_answer == "West leads revenue."
+        assert outcome.final_answer == [
+            MarkdownAnswerBlock(content="West leads revenue.")
+        ]
         assert outcome.events == []
 
     def test_publish_artifact_stores_artifact_and_emits_event_during_execution(

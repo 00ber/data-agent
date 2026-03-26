@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from agent.agent import Agent
+from agent.answer_blocks import ArtifactAnswerBlock, MarkdownAnswerBlock
 from agent.environment import Environment
 from agent.llm import CodeStep
 from agent.memory import Memory
@@ -52,7 +53,12 @@ class TestAgent:
     @pytest.mark.asyncio
     async def test_run_emits_thinking_code_and_answer_events(self):
         llm = FakeLLM(
-            [CodeStep(plan="Answer directly", code="final_answer('done')")]
+            [
+                CodeStep(
+                    plan="Answer directly",
+                    code='final_answer([{"type": "markdown", "content": "done"}])',
+                )
+            ]
         )
         agent = make_agent(llm)
 
@@ -60,8 +66,12 @@ class TestAgent:
 
         assert [event.kind for event in events] == ["thinking", "code", "answer"]
         assert events[0].data == {"text": "Answer directly"}
-        assert events[1].data == {"text": "final_answer('done')"}
-        assert events[2].data == {"text": "done"}
+        assert events[1].data == {
+            "text": 'final_answer([{"type": "markdown", "content": "done"}])'
+        }
+        assert events[2].data == {
+            "blocks": [{"type": "markdown", "content": "done"}]
+        }
 
     @pytest.mark.asyncio
     async def test_run_emits_artifacts_before_terminal_answer(self, orders_df):
@@ -71,7 +81,8 @@ class TestAgent:
                     plan="Group by category and finish",
                     code=(
                         'grouped = group_by("orders", "category", "revenue", "sum")\n'
-                        "final_answer('done')"
+                        'summary_table = publish_table(grouped, title="Revenue by category")\n'
+                        'final_answer([{"type": "markdown", "content": "done"}, {"type": "artifact", "artifact_id": summary_table}])'
                     ),
                 )
             ]
@@ -80,16 +91,25 @@ class TestAgent:
 
         events = [event async for event in agent.run("Summarize revenue by category.")]
 
-        assert [event.kind for event in events] == ["thinking", "code", "artifact", "answer"]
+        assert [event.kind for event in events] == ["thinking", "code", "artifact", "artifact", "answer"]
         assert events[2].data["kind"] == "table"
-        assert events[3].data["text"] == "done"
+        assert events[3].data["kind"] == "table"
+        assert events[4].data == {
+            "blocks": [
+                {"type": "markdown", "content": "done"},
+                {"type": "artifact", "artifact_id": events[3].data["id"]},
+            ]
+        }
 
     @pytest.mark.asyncio
     async def test_run_retries_after_error_with_step_feedback(self):
         llm = FakeLLM(
             [
                 CodeStep(plan="Try bad code", code="1 / 0"),
-                CodeStep(plan="Fix it", code="final_answer('fixed')"),
+                CodeStep(
+                    plan="Fix it",
+                    code='final_answer([{"type": "markdown", "content": "fixed"}])',
+                ),
             ]
         )
         agent = make_agent(llm)
@@ -116,7 +136,7 @@ class TestAgent:
         assert any(
             message["role"] == "user"
             and "ZeroDivisionError" in message["content"]
-            and "Please fix the issue and try again." in message["content"]
+            and "Fix the issue and try again." in message["content"]
             for message in second_call
         )
 
@@ -150,7 +170,12 @@ class TestAgent:
     @pytest.mark.asyncio
     async def test_run_records_memory_and_final_answer(self):
         llm = FakeLLM(
-            [CodeStep(plan="Inspect and answer", code="final_answer('West wins')")]
+            [
+                CodeStep(
+                    plan="Inspect and answer",
+                    code='final_answer([{"type": "markdown", "content": "West wins"}])',
+                )
+            ]
         )
         memory = Memory()
         agent = make_agent(llm, memory=memory)
@@ -161,12 +186,15 @@ class TestAgent:
             {"role": "user", "content": "Who wins?"},
             {"role": "assistant", "content": "West wins"},
         ]
-        assert memory.final_answers == ["West wins"]
+        assert memory.final_answers == [[MarkdownAnswerBlock(content="West wins")]]
         assert memory.step_history == [
             memory.step_history[0],
         ]
         assert memory.step_history[0].plan == "Inspect and answer"
-        assert memory.step_history[0].code == "final_answer('West wins')"
+        assert (
+            memory.step_history[0].code
+            == 'final_answer([{"type": "markdown", "content": "West wins"}])'
+        )
         assert memory.step_history[0].output is None
         assert memory.step_history[0].is_error is False
 
@@ -176,11 +204,11 @@ class TestAgent:
             [
                 CodeStep(
                     plan="Store a value",
-                    code="saved_total = 7\nfinal_answer('Saved total.')",
+                    code='saved_total = 7\nfinal_answer([{"type": "markdown", "content": "Saved total."}])',
                 ),
                 CodeStep(
                     plan="Use prior workspace",
-                    code="final_answer(str(saved_total))",
+                    code='final_answer([{"type": "markdown", "content": str(saved_total)}])',
                 ),
             ]
         )
@@ -191,8 +219,12 @@ class TestAgent:
         first_events = [event async for event in agent.run("Store the total.")]
         second_events = [event async for event in agent.run("What total did you store?")]
 
-        assert first_events[-1].data == {"text": "Saved total."}
-        assert second_events[-1].data == {"text": "7"}
+        assert first_events[-1].data == {
+            "blocks": [{"type": "markdown", "content": "Saved total."}]
+        }
+        assert second_events[-1].data == {
+            "blocks": [{"type": "markdown", "content": "7"}]
+        }
         assert environment.workspace["saved_total"] == 7
 
         second_call = llm.calls[1]

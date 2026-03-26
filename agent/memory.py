@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from agent.answer_blocks import AnswerBlock, answer_blocks_to_conversation_text
 from agent.validation import require_optional_text, require_text
 
 
@@ -22,7 +23,7 @@ class Memory:
     """Explicit conversation and step memory for one agent runtime."""
 
     step_history: list[StepRecord] = field(default_factory=list)
-    final_answers: list[str] = field(default_factory=list)
+    final_answers: list[list[AnswerBlock]] = field(default_factory=list)
     _conversation_history: list[dict[str, str]] = field(default_factory=list)
 
     def record_user_turn(self, message: str) -> None:
@@ -56,13 +57,26 @@ class Memory:
         self.step_history.append(step_record)
         return step_record
 
-    def record_final_answer(self, answer: str) -> None:
-        """Record one final answer as both a fact and an assistant turn."""
+    def record_final_answer(
+        self,
+        blocks: list[AnswerBlock],
+        *,
+        artifact_titles: dict[str, str] | None = None,
+    ) -> None:
+        """Record one structured final answer as both a fact and an assistant turn."""
 
-        normalized_answer = require_text(answer, "Final answer")
-        self.final_answers.append(normalized_answer)
+        if len(blocks) == 0:
+            raise ValueError("Final answer must contain at least one block.")
+
+        self.final_answers.append(blocks)
         self._conversation_history.append(
-            {"role": "assistant", "content": normalized_answer}
+            {
+                "role": "assistant",
+                "content": answer_blocks_to_conversation_text(
+                    blocks,
+                    artifact_titles=artifact_titles,
+                ),
+            }
         )
 
     def conversation_messages(self) -> list[dict[str, str]]:

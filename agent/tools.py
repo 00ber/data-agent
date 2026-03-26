@@ -29,9 +29,9 @@ class Tools:
         "group_by",
         "sort",
         "join",
-        "show_chart",
-        "show_table",
-        "show_stat",
+        "publish_chart",
+        "publish_table",
+        "publish_stat",
     )
     AGGREGATIONS = {"sum", "mean", "count", "min", "max", "median", "std"}
     CHART_TYPES = {"bar", "line", "scatter", "pie", "histogram"}
@@ -197,21 +197,21 @@ class Tools:
         )
         return joined
 
-    def show_chart(
+    def publish_chart(
         self,
         execution_context: ExecutionContext,
         data: str | pd.DataFrame,
         kind: str = "bar",
         title: str = "",
     ) -> str:
-        """Purpose: Display a dataframe as a visible chart artifact.
+        """Purpose: Publish a dataframe as a visible chart artifact.
         Parameters:
         - data: Table name or dataframe to visualize.
         - kind: One of bar, line, scatter, pie, or histogram.
         - title: Chart title shown to the user.
-        Returns: A confirmation string.
+        Returns: The published artifact id.
         Emits: chart artifact
-        Example: show_chart(revenue_by_region, kind="bar", title="Revenue by Region")
+        Example: revenue_chart = publish_chart(revenue_by_region, kind="bar", title="Revenue by Region")
         """
 
         df = self._resolve(execution_context, data)
@@ -221,7 +221,7 @@ class Tools:
                 f"Unknown chart type: '{kind}'. Supported: {', '.join(sorted(self.CHART_TYPES))}"
             )
 
-        execution_context.publish_artifact(
+        artifact = execution_context.publish_artifact(
             "chart",
             title,
             {
@@ -230,48 +230,48 @@ class Tools:
                 "records": df.to_dict(orient="records"),
             },
         )
-        return f"Displayed {kind} chart: {title}"
+        return artifact.id
 
-    def show_table(
+    def publish_table(
         self,
         execution_context: ExecutionContext,
         data: str | pd.DataFrame,
         title: str = "",
     ) -> str:
-        """Purpose: Display a dataframe as a visible table artifact.
+        """Purpose: Publish a dataframe as a visible table artifact.
         Parameters:
         - data: Table name or dataframe to display.
         - title: Table title shown to the user.
-        Returns: A confirmation string.
+        Returns: The published artifact id.
         Emits: table artifact
-        Example: show_table(top_orders, title="Top Orders by Revenue")
+        Example: top_orders_table = publish_table(top_orders, title="Top Orders by Revenue")
         """
 
         df = self._resolve(execution_context, data)
-        execution_context.publish_artifact("table", title, self._table_data(df))
-        return f"Displayed table: {title} ({len(df)} rows)"
+        artifact = execution_context.publish_artifact("table", title, self._table_data(df))
+        return artifact.id
 
-    def show_stat(
+    def publish_stat(
         self,
         execution_context: ExecutionContext,
         label: str,
         value: Any,
     ) -> str:
-        """Purpose: Display one label-value pair as a visible stat artifact.
+        """Purpose: Publish one label-value pair as a visible stat artifact.
         Parameters:
         - label: Stat name shown to the user.
         - value: Value shown for that stat.
-        Returns: A confirmation string.
+        Returns: The published artifact id.
         Emits: stat artifact
-        Example: show_stat("Total Revenue", orders["revenue"].sum())
+        Example: total_revenue_stat = publish_stat("Total Revenue", orders["revenue"].sum())
         """
 
-        execution_context.publish_artifact(
+        artifact = execution_context.publish_artifact(
             "stat",
             label,
             {"label": label, "value": value},
         )
-        return f"Displayed stat: {label} = {value}"
+        return artifact.id
 
     def _resolve(
         self,

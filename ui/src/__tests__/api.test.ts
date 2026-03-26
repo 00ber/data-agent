@@ -114,7 +114,7 @@ describe('streamMessage', () => {
     const body = makeSSEStream([
       'event: thinking\ndata: {"text":"planning"}\n\n',
       'event: code\ndata: {"text":"x = 1"}\n\n',
-      'event: answer\ndata: {"text":"done"}\n\n',
+      'event: answer\ndata: {"blocks":[{"type":"markdown","content":"done"}]}\n\n',
     ])
     mockFetch.mockResolvedValueOnce({ ok: true, body })
     streamMessage('s1', 'test query', (e) => events.push(e))
@@ -122,7 +122,10 @@ describe('streamMessage', () => {
     expect(events).toHaveLength(3)
     expect(events[0]).toEqual({ kind: 'thinking', data: { text: 'planning' } })
     expect(events[1]).toEqual({ kind: 'code', data: { text: 'x = 1' } })
-    expect(events[2]).toEqual({ kind: 'answer', data: { text: 'done' } })
+    expect(events[2]).toEqual({
+      kind: 'answer',
+      data: { blocks: [{ type: 'markdown', content: 'done' }] },
+    })
   })
 
   it('handles chunked SSE lines split across reads', async () => {

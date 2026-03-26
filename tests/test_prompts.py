@@ -1,3 +1,4 @@
+from agent.answer_blocks import MarkdownAnswerBlock
 from agent.events import Event
 from agent.environment import Environment, ExecutionResult
 from agent.memory import Memory
@@ -52,7 +53,7 @@ class TestDescribeTools:
 
         assert "filter(" in result
         assert "group_by(" in result
-        assert "show_chart(" in result
+        assert "publish_chart(" in result
 
     def test_uses_registered_action_order(self):
         tools = Tools()
@@ -62,9 +63,9 @@ class TestDescribeTools:
         assert result.index("filter(") < result.index("group_by(")
         assert result.index("group_by(") < result.index("sort(")
         assert result.index("sort(") < result.index("join(")
-        assert result.index("join(") < result.index("show_chart(")
-        assert result.index("show_chart(") < result.index("show_table(")
-        assert result.index("show_table(") < result.index("show_stat(")
+        assert result.index("join(") < result.index("publish_chart(")
+        assert result.index("publish_chart(") < result.index("publish_table(")
+        assert result.index("publish_table(") < result.index("publish_stat(")
 
 
 class TestBuildSystemPrompt:
@@ -91,7 +92,7 @@ class TestBuildSystemPrompt:
 
         assert "filter(" in prompt
         assert "group_by(" in prompt
-        assert "show_table(" in prompt
+        assert "publish_table(" in prompt
 
     def test_includes_final_answer_in_available_actions_section(self, orders_df):
         environment = Environment(
@@ -109,7 +110,7 @@ class TestBuildSystemPrompt:
         assert "final_answer(" in prompt
         assert "must call final_answer" in prompt.lower()
         assert "## Final Answer" not in prompt
-        assert actions_section.index("show_stat(") < actions_section.index(
+        assert actions_section.index("publish_stat(") < actions_section.index(
             "final_answer("
         )
 
@@ -126,6 +127,7 @@ class TestBuildSystemPrompt:
         assert "input tables are immutable" in prompt.lower()
         assert "_x and _y" in prompt
         assert "libraries in scope" in prompt.lower()
+        assert "publish_chart(), publish_table(), and publish_stat()" in prompt
 
     def test_requires_concrete_final_answers(self, orders_df):
         environment = Environment(
@@ -137,6 +139,12 @@ class TestBuildSystemPrompt:
 
         assert "states the findings directly" in prompt.lower()
         assert "do not just say" in prompt.lower()
+        assert "analyst note" in prompt.lower()
+        assert "first sentence should answer the user's question directly" in prompt.lower()
+        assert "correlation" in prompt.lower()
+        assert "normalized comparison" in prompt.lower()
+        assert '"type": "markdown"' in prompt
+        assert '"type": "artifact"' in prompt
 
 
 class TestBuildConversationMessages:
@@ -152,7 +160,7 @@ class TestBuildConversationMessages:
     def test_uses_memory_conversation_messages(self):
         memory = Memory()
         memory.record_user_turn("Hello")
-        memory.record_final_answer("Hi")
+        memory.record_final_answer([MarkdownAnswerBlock(content="Hi")])
 
         messages = build_conversation_messages("System prompt", memory)
 

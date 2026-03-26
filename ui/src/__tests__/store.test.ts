@@ -121,9 +121,9 @@ describe('ask', () => {
         query: 'Previous',
         turns: [],
         artifacts: [],
-        responseArtifactIds: [],
-        pendingArtifactIds: [],
-        answer: 'Answer',
+        answerBlocks: [
+          { type: 'markdown', content: 'Answer' },
+        ],
         status: 'complete',
         collapsed: false,
       }],
@@ -159,9 +159,7 @@ describe('stopStreaming', () => {
         query: 'test',
         turns: [],
         artifacts: [],
-        responseArtifactIds: [],
-        pendingArtifactIds: [],
-        answer: null,
+        answerBlocks: null,
         status: 'streaming',
         collapsed: false,
       }],
@@ -185,9 +183,9 @@ describe('UI actions', () => {
         query: 'test',
         turns: [],
         artifacts: [],
-        responseArtifactIds: [],
-        pendingArtifactIds: [],
-        answer: 'done',
+        answerBlocks: [
+          { type: 'markdown', content: 'done' },
+        ],
         status: 'complete',
         collapsed: false,
       }],
@@ -220,7 +218,7 @@ describe('UI actions', () => {
 })
 
 describe('artifact handling', () => {
-  it('keeps artifact payloads on trace steps and promotes the latest artifact batch to response artifacts', async () => {
+  it('keeps artifact payloads on trace steps and stores structured final answer blocks', async () => {
     useStore.setState({ sessionId: 'sess_1' })
 
     mockedApi.getSuggestions.mockResolvedValueOnce({ suggestions: ['Follow-up'] })
@@ -241,7 +239,15 @@ describe('artifact handling', () => {
         },
       })
       onEvent({ kind: 'result', data: { text: 'Displayed table' } })
-      onEvent({ kind: 'answer', data: { text: 'Consumer leads.' } })
+      onEvent({
+        kind: 'answer',
+        data: {
+          blocks: [
+            { type: 'markdown', content: 'Consumer leads.' },
+            { type: 'artifact', artifact_id: 'art_1' },
+          ],
+        },
+      })
 
       return { close: vi.fn() }
     })
@@ -251,9 +257,10 @@ describe('artifact handling', () => {
     const analysis = useStore.getState().analyses[0]!
     expect(analysis.turns[0]!.artifacts[0]!.id).toBe('art_1')
     expect(analysis.turns[0]!.result).toBe('Displayed table')
-    expect(analysis.responseArtifactIds).toEqual(['art_1'])
-    expect(analysis.pendingArtifactIds).toEqual([])
-    expect(analysis.answer).toBe('Consumer leads.')
+    expect(analysis.answerBlocks).toEqual([
+      { type: 'markdown', content: 'Consumer leads.' },
+      { type: 'artifact', artifact_id: 'art_1' },
+    ])
   })
 
   it('groups one reasoning loop into one turn with thought, code, artifacts, and error', async () => {
@@ -291,6 +298,6 @@ describe('artifact handling', () => {
       error: 'TypeError: unhashable type: list',
     })
     expect(analysis.turns[0]!.artifacts).toHaveLength(1)
-    expect(analysis.responseArtifactIds).toEqual([])
+    expect(analysis.answerBlocks).toBeNull()
   })
 })

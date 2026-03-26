@@ -52,6 +52,20 @@ export interface StatData {
   value: unknown
 }
 
+// -- Final answer blocks --------------------------------------------------
+
+export interface MarkdownAnswerBlockData {
+  type: 'markdown'
+  content: string
+}
+
+export interface ArtifactAnswerBlockData {
+  type: 'artifact'
+  artifact_id: string
+}
+
+export type AnswerBlockData = MarkdownAnswerBlockData | ArtifactAnswerBlockData
+
 // -- Agent event types ----------------------------------------------------
 
 export type EventKind = 'thinking' | 'code' | 'artifact' | 'result' | 'answer' | 'error'
@@ -77,9 +91,7 @@ export interface AnalysisBlock {
   query: string
   turns: TraceTurn[]
   artifacts: ArtifactData[]
-  responseArtifactIds: string[]
-  pendingArtifactIds: string[]
-  answer: string | null
+  answerBlocks: AnswerBlockData[] | null
   status: 'streaming' | 'complete' | 'error'
   collapsed: boolean
 }

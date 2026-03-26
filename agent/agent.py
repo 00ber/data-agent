@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import AsyncIterator
 
+from agent.answer_blocks import serialize_answer_blocks
 from agent.environment import Environment, ExecutionResult
 from agent.events import Event
 from agent.llm import LLM
@@ -58,8 +59,17 @@ class Agent:
                 yield event
 
             if result.final_answer is not None:
-                self.memory.record_final_answer(result.final_answer)
-                yield Event("answer", {"text": result.final_answer})
+                self.memory.record_final_answer(
+                    result.final_answer,
+                    artifact_titles={
+                        artifact.id: artifact.title
+                        for artifact in self.environment.artifacts
+                    },
+                )
+                yield Event(
+                    "answer",
+                    {"blocks": serialize_answer_blocks(result.final_answer)},
+                )
                 return
 
             messages.extend(build_step_messages(code_step, result))
