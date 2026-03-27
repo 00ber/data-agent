@@ -122,9 +122,6 @@ def build_step_messages(
 ) -> list[dict[str, str]]:
     """Build the transient assistant/user messages for one finished step."""
 
-    if result.analysis_handoff is not None:
-        raise ValueError("Step messages should not be built for an analysis handoff.")
-
     assistant_lines = [
         f"Plan: {code_step.plan}",
         f"Code: {code_step.code}",
@@ -144,9 +141,6 @@ def build_step_messages(
 def _build_step_follow_up(result: ExecutionResult) -> str:
     """Build the next user instruction after one execution step."""
 
-    if result.analysis_handoff is not None:
-        raise ValueError("Step follow-up should not be built for an analysis handoff.")
-
     if result.is_error:
         return (
             f"Error: {result.output}\n\n"
@@ -158,11 +152,6 @@ def _build_step_follow_up(result: ExecutionResult) -> str:
     if artifact_count > 0:
         return (
             f"Step produced {artifact_count} artifact(s) visible to the user."
-            + (
-                "\n\n" + result.step_summary
-                if result.step_summary is not None
-                else ""
-            )
             + "\n\n"
             "If you have displayed all the results needed to answer the question, "
             "call conclude_analysis() with a stand-alone handoff that states the "
@@ -174,10 +163,8 @@ def _build_step_follow_up(result: ExecutionResult) -> str:
 
     if result.step_summary is not None:
         return (
-            "Step succeeded.\n\n"
-            + result.step_summary
-            + "\n\n"
-            "Continue with the next step, or call conclude_analysis() "
+            "Step succeeded. Review the step summary above and continue with the "
+            "next step, or call conclude_analysis() "
             "if you have enough to answer the question."
         )
 

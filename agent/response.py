@@ -100,10 +100,9 @@ def validate_final_response_artifacts(
         if section.kind != "artifact":
             continue
 
-        artifact_id = require_text(
-            section.artifact_id,
-            "Final response artifact section artifact_id",
-        )
+        artifact_id = section.artifact_id
+        if artifact_id is None:
+            raise ValueError("Artifact response sections must include artifact_id.")
         if artifact_id not in available_artifact_ids:
             raise ValueError(f"Unknown artifact reference '{artifact_id}'.")
 
@@ -114,24 +113,24 @@ def serialize_final_response(response: FinalResponse) -> list[dict[str, str]]:
     payload: list[dict[str, str]] = []
     for section in response.sections:
         if section.kind == "markdown":
+            markdown = section.markdown
+            if markdown is None:
+                raise ValueError("Markdown response sections must include markdown.")
             payload.append(
                 {
                     "type": "markdown",
-                    "content": require_text(
-                        section.markdown,
-                        "Final response markdown section",
-                    ),
+                    "content": markdown,
                 }
             )
             continue
 
+        artifact_id = section.artifact_id
+        if artifact_id is None:
+            raise ValueError("Artifact response sections must include artifact_id.")
         payload.append(
             {
                 "type": "artifact",
-                "artifact_id": require_text(
-                    section.artifact_id,
-                    "Final response artifact section artifact_id",
-                ),
+                "artifact_id": artifact_id,
             }
         )
 
@@ -150,15 +149,15 @@ def response_to_conversation_text(
 
     for section in response.sections:
         if section.kind == "markdown":
-            parts.append(
-                require_text(section.markdown, "Final response markdown section")
-            )
+            markdown = section.markdown
+            if markdown is None:
+                raise ValueError("Markdown response sections must include markdown.")
+            parts.append(markdown)
             continue
 
-        artifact_id = require_text(
-            section.artifact_id,
-            "Final response artifact section artifact_id",
-        )
+        artifact_id = section.artifact_id
+        if artifact_id is None:
+            raise ValueError("Artifact response sections must include artifact_id.")
         title = titles.get(artifact_id, artifact_id)
         parts.append(f"[Artifact: {title}]")
 

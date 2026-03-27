@@ -195,6 +195,25 @@ class TestEnvironment:
         assert environment.artifacts[0].id in outcome.step_summary
         assert "stat 'Total Revenue'" in outcome.step_summary
 
+    def test_successful_execution_tracks_in_place_dataframe_metadata_changes(
+        self,
+        orders_df,
+        sandbox,
+    ):
+        environment = Environment(inputs={"orders": orders_df}, sandbox=sandbox)
+
+        first_outcome = environment.execute('working = orders.copy()')
+        second_outcome = environment.execute(
+            "working['discount'] = 0\n"
+            "working = working[['order_id', 'discount']]"
+        )
+
+        assert first_outcome.is_error is False
+        assert second_outcome.is_error is False
+        assert second_outcome.step_summary is not None
+        assert "dataframe working" in second_outcome.step_summary
+        assert "discount" in second_outcome.step_summary
+
     def test_conclude_analysis_accepts_valid_inline_artifact_mentions(self, sandbox):
         environment = Environment(inputs={}, sandbox=sandbox)
 

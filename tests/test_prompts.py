@@ -229,6 +229,7 @@ class TestBuildStepMessages:
         assert "artifact(s) visible to the user" in feedback
         assert "call conclude_analysis()" in feedback
         assert "stand-alone handoff" in feedback.lower()
+        assert "published artifact artifact_1" not in feedback
 
     def test_success_feedback_without_artifacts(self):
         result = ExecutionResult(
@@ -249,9 +250,10 @@ class TestBuildStepMessages:
         feedback = messages[1]["content"]
 
         assert "Step succeeded." in feedback
+        assert "Review the step summary above" in feedback
         assert "call conclude_analysis()" in feedback
-        assert "joined" in feedback
-        assert "region_y" in feedback
+        assert "joined" not in feedback
+        assert "region_y" not in feedback
 
     def test_includes_step_summary_in_assistant_message(self):
         result = ExecutionResult(
@@ -275,6 +277,8 @@ class TestBuildStepMessages:
         assert "joined" in messages[0]["content"]
         assert "region_y" in messages[0]["content"]
         assert "5" in messages[0]["content"]
+        assert "joined" not in messages[1]["content"]
+        assert "region_y" not in messages[1]["content"]
 
 
 class TestBuildFinalizationMessages:

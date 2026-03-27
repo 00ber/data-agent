@@ -55,12 +55,17 @@ class ExecutionContext:
 
     environment: "Environment"
     pending_events: list[Event] = field(default_factory=list)
-    before_workspace: dict[str, Any] = field(init=False)
+    before_dataframe_metadata: dict[
+        str,
+        tuple[int, tuple[Any, ...], tuple[tuple[Any, str], ...]],
+    ] = field(init=False)
 
     def __post_init__(self) -> None:
-        """Snapshot the workspace so the step can report what changed."""
+        """Snapshot dataframe metadata so the step can report what changed."""
 
-        self.before_workspace = dict(self.environment.workspace)
+        self.before_dataframe_metadata = self._snapshot_dataframe_metadata(
+            self.environment.workspace
+        )
 
     def build_namespace(self) -> dict[str, Any]:
         """Build the step namespace from environment state and bound actions."""
@@ -222,28 +227,45 @@ class ExecutionContext:
         return "Step summary:\n" + "\n".join(lines)
 
     def _summarize_dataframe_changes(self) -> list[str]:
-        """Summarize newly created or reassigned dataframe workspace variables."""
+        """Summarize dataframe variables whose visible metadata changed this step."""
 
         lines: list[str] = []
-        for name, value in self.environment.workspace.items():
-            if not isinstance(value, pd.DataFrame):
+        current_dataframe_metadata = self._snapshot_dataframe_metadata(
+            self.environment.workspace
+        )
+        for name, metadata in current_dataframe_metadata.items():
+            if self.before_dataframe_metadata.get(name) == metadata:
                 continue
 
-            previous_value = self.before_workspace.get(name)
-            if previous_value is value:
-                continue
-
+            row_count, columns, dtypes = metadata
             lines.append(
-                f"- dataframe {name}: {len(value)} rows; "
-                f"columns={list(value.columns)}; "
+                f"- dataframe {name}: {row_count} rows; "
+                f"columns={list(columns)}; "
                 f"dtypes={{"
-                + ", ".join(
-                    f"{column!r}: {str(value[column].dtype)!r}" for column in value.columns
-                )
+                + ", ".join(f"{column!r}: {dtype!r}" for column, dtype in dtypes)
                 + "}"
             )
 
         return lines
+
+    def _snapshot_dataframe_metadata(
+        self,
+        workspace: dict[str, Any],
+    ) -> dict[str, tuple[int, tuple[Any, ...], tuple[tuple[Any, str], ...]]]:
+        """Capture one compact metadata snapshot for dataframe workspace variables."""
+
+        metadata_by_name: dict[
+            str,
+            tuple[int, tuple[Any, ...], tuple[tuple[Any, str], ...]],
+        ] = {}
+        for name, value in workspace.items():
+            if not isinstance(value, pd.DataFrame):
+                continue
+
+            columns = tuple(value.columns.tolist())
+            dtypes = tuple((column, str(value[column].dtype)) for column in columns)
+            metadata_by_name[name] = (len(value), columns, dtypes)
+        return metadata_by_name
 
     def _summarize_published_artifacts(self) -> list[str]:
         """Summarize published artifacts from this execution."""

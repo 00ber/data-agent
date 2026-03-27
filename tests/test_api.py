@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 import api.main as api_main
-from agent import Agent, CodeStep, OpenAILLM
+from agent import Agent, OpenAILLM
+from agent.agent import CodeStep
 from agent.response import FinalResponse, FinalResponseReview, ResponseSection
 from api.datasets import SAMPLE_DATASETS, get_dataset_paths
 from api.sessions import AgentSession, InMemoryAgentSessionStore
