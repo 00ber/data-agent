@@ -1,6 +1,9 @@
 # Archive (reference only)
 archive/
 
+# Internal design and planning notes kept out of the student-facing repo
+.internal-docs/
+
 # Superpowers brainstorming
 .superpowers/
 
