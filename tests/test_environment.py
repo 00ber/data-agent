@@ -4,11 +4,8 @@ import pytest
 from agent.environment import (
     AnalysisHandoff,
     Artifact,
-    ArtifactObservation,
-    DataFrameObservation,
     Environment,
     ExecutionResult,
-    TextOutputObservation,
 )
 from agent.tools import Tools
 from agent.sandbox import ExecutionSandbox
@@ -41,14 +38,14 @@ class TestExecutionResult:
             output="OK",
             is_error=False,
             analysis_handoff=None,
-            observations=[],
+            step_summary=None,
         )
 
         assert outcome.events == []
         assert outcome.output == "OK"
         assert outcome.is_error is False
         assert outcome.analysis_handoff is None
-        assert outcome.observations == []
+        assert outcome.step_summary is None
 
 
 class TestEnvironment:
@@ -83,7 +80,7 @@ class TestEnvironment:
         assert outcome.output == str(len(orders_df))
         assert outcome.analysis_handoff is None
         assert [event.kind for event in outcome.events] == ["result"]
-        assert outcome.observations == [TextOutputObservation(text=str(len(orders_df)))]
+        assert outcome.step_summary == "Step summary:\n- text output: " + str(len(orders_df))
 
     def test_execute_can_access_pandas_and_numpy(self, orders_df, sandbox):
         environment = Environment(inputs={"orders": orders_df}, sandbox=sandbox)
@@ -135,7 +132,7 @@ class TestEnvironment:
         assert outcome.analysis_handoff is None
         assert "ZeroDivisionError" in outcome.output
         assert [event.kind for event in outcome.events] == ["error"]
-        assert outcome.observations == []
+        assert outcome.step_summary is None
 
     def test_conclude_analysis_is_returned_in_outcome(self, orders_df, sandbox):
         environment = Environment(inputs={"orders": orders_df}, sandbox=sandbox)
@@ -151,9 +148,9 @@ class TestEnvironment:
             artifact_ids=[],
         )
         assert outcome.events == []
-        assert outcome.observations == []
+        assert outcome.step_summary is None
 
-    def test_successful_execution_tracks_new_dataframe_observations(
+    def test_successful_execution_tracks_new_dataframe_in_step_summary(
         self,
         orders_df,
         customers_df,
@@ -170,17 +167,12 @@ class TestEnvironment:
         )
 
         assert outcome.is_error is False
-        assert DataFrameObservation(
-            name="joined",
-            rows=len(environment.workspace["joined"]),
-            columns=list(environment.workspace["joined"].columns),
-            dtypes={
-                column: str(environment.workspace["joined"][column].dtype)
-                for column in environment.workspace["joined"].columns
-            },
-        ) in outcome.observations
+        assert outcome.step_summary is not None
+        assert "dataframe joined" in outcome.step_summary
+        assert "region_x" in outcome.step_summary
+        assert "region_y" in outcome.step_summary
 
-    def test_successful_execution_tracks_published_artifact_observations(
+    def test_successful_execution_tracks_published_artifact_in_step_summary(
         self,
         sandbox,
     ):
@@ -199,11 +191,9 @@ class TestEnvironment:
         outcome = environment.execute('artifact_id = publish_stat("Total Revenue", 42)')
 
         assert outcome.is_error is False
-        assert ArtifactObservation(
-            artifact_id=environment.artifacts[0].id,
-            artifact_kind="stat",
-            title="Total Revenue",
-        ) in outcome.observations
+        assert outcome.step_summary is not None
+        assert environment.artifacts[0].id in outcome.step_summary
+        assert "stat 'Total Revenue'" in outcome.step_summary
 
     def test_conclude_analysis_accepts_valid_inline_artifact_mentions(self, sandbox):
         environment = Environment(inputs={}, sandbox=sandbox)

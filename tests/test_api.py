@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 import api.main as api_main
 from agent import Agent, CodeStep, OpenAILLM
-from agent.agent import FinalResponseBlock, FinalResponseReview
+from agent.response import FinalResponse, FinalResponseReview, ResponseSection
 from api.datasets import SAMPLE_DATASETS, get_dataset_paths
 from api.sessions import AgentSession, InMemoryAgentSessionStore
 
@@ -25,6 +25,18 @@ class FakeLLM:
         expected_model, response = next(self._responses)
         assert response_model is expected_model
         return response
+
+
+def markdown_response(text: str) -> FinalResponse:
+    return FinalResponse(
+        sections=[
+            ResponseSection(
+                kind="markdown",
+                markdown=text,
+                artifact_id=None,
+            )
+        ]
+    )
 
 
 def parse_sse_events(body: str) -> list[dict[str, object]]:
@@ -296,13 +308,7 @@ class TestMessagesRoute:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="done",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("done"),
                     ),
                 )
             ]
@@ -344,13 +350,7 @@ class TestMessagesRoute:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="Saved total.",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("Saved total."),
                     ),
                 ),
                 (
@@ -365,13 +365,7 @@ class TestMessagesRoute:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="7",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("7"),
                     ),
                 ),
             ]

@@ -1,8 +1,9 @@
 import pytest
 from pydantic import BaseModel
 
-from agent.agent import CodeStep, FinalResponseBlock, FinalResponseReview
+from agent.agent import CodeStep
 from agent.llm import OpenAILLM
+from agent.response import FinalResponse, FinalResponseReview, ResponseSection
 
 
 class TestCodeStep:
@@ -52,13 +53,15 @@ class TestOpenAILLM:
         parsed_decision = FinalResponseReview(
             status="approved",
             critique=None,
-            blocks=[
-                FinalResponseBlock(
-                    type="markdown",
-                    content="done",
-                    artifact_id=None,
-                )
-            ],
+            response=FinalResponse(
+                sections=[
+                    ResponseSection(
+                        kind="markdown",
+                        markdown="done",
+                        artifact_id=None,
+                    )
+                ]
+            ),
         )
 
         class FakeResponses:

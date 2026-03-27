@@ -15,7 +15,6 @@ from agent.sandbox import ExecutionSandbox, SandboxResult, SandboxStop
 from agent.validation import require_text
 
 ArtifactKind = Literal["table", "chart", "stat"]
-ObservationKind = Literal["dataframe", "artifact", "text_output"]
 
 _RESERVED_RUNTIME_NAMES = {"pd", "np", "conclude_analysis"}
 _ARTIFACT_MENTION_PATTERN = re.compile(r"(?<!\w)@(artifact_[A-Za-z0-9_]+)\b")
@@ -29,32 +28,6 @@ class Artifact:
     kind: ArtifactKind
     title: str
     data: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class DataFrameObservation:
-    """One compact observation about a dataframe created in the workspace."""
-
-    name: str
-    rows: int
-    columns: list[str]
-    dtypes: dict[str, str]
-
-
-@dataclass(frozen=True)
-class ArtifactObservation:
-    """One compact observation about a published artifact."""
-
-    artifact_id: str
-    artifact_kind: ArtifactKind
-    title: str
-
-
-@dataclass(frozen=True)
-class TextOutputObservation:
-    """One compact observation about printed or repr-style step output."""
-
-    text: str
 
 
 @dataclass
@@ -73,7 +46,7 @@ class ExecutionResult:
     output: str | None
     is_error: bool
     analysis_handoff: AnalysisHandoff | None
-    observations: list[DataFrameObservation | ArtifactObservation | TextOutputObservation]
+    step_summary: str | None
 
 
 @dataclass
@@ -152,7 +125,7 @@ class ExecutionContext:
             output=result.output,
             is_error=False,
             analysis_handoff=None,
-            observations=self._collect_observations(result.output),
+            step_summary=self._build_step_summary(result.output),
         )
 
     def error_outcome(self, result: SandboxResult) -> ExecutionResult:
@@ -164,7 +137,7 @@ class ExecutionContext:
             output=result.output,
             is_error=True,
             analysis_handoff=None,
-            observations=[],
+            step_summary=None,
         )
 
     def analysis_handoff_outcome(self, value: Any) -> ExecutionResult:
@@ -178,7 +151,7 @@ class ExecutionContext:
             output=None,
             is_error=False,
             analysis_handoff=value,
-            observations=self._collect_observations(None),
+            step_summary=self._build_step_summary(None),
         )
 
     def _coerce_artifact_ids(self, artifact_ids: Any | None) -> list[str]:
@@ -234,26 +207,24 @@ class ExecutionContext:
 
         return bound_action
 
-    def _collect_observations(
-        self,
-        text_output: str | None,
-    ) -> list[DataFrameObservation | ArtifactObservation | TextOutputObservation]:
-        """Collect one compact summary of what this step produced."""
+    def _build_step_summary(self, text_output: str | None) -> str | None:
+        """Build one compact summary string for the next agent step."""
 
-        observations: list[
-            DataFrameObservation | ArtifactObservation | TextOutputObservation
-        ] = []
-
-        observations.extend(self._collect_dataframe_observations())
-        observations.extend(self._collect_artifact_observations())
+        lines: list[str] = []
+        lines.extend(self._summarize_dataframe_changes())
+        lines.extend(self._summarize_published_artifacts())
         if text_output not in {None, "OK"}:
-            observations.append(TextOutputObservation(text=text_output))
-        return observations
+            lines.append(f"- text output: {text_output}")
 
-    def _collect_dataframe_observations(self) -> list[DataFrameObservation]:
+        if len(lines) == 0:
+            return None
+
+        return "Step summary:\n" + "\n".join(lines)
+
+    def _summarize_dataframe_changes(self) -> list[str]:
         """Summarize newly created or reassigned dataframe workspace variables."""
 
-        observations: list[DataFrameObservation] = []
+        lines: list[str] = []
         for name, value in self.environment.workspace.items():
             if not isinstance(value, pd.DataFrame):
                 continue
@@ -262,34 +233,32 @@ class ExecutionContext:
             if previous_value is value:
                 continue
 
-            observations.append(
-                DataFrameObservation(
-                    name=name,
-                    rows=len(value),
-                    columns=list(value.columns),
-                    dtypes={column: str(value[column].dtype) for column in value.columns},
+            lines.append(
+                f"- dataframe {name}: {len(value)} rows; "
+                f"columns={list(value.columns)}; "
+                f"dtypes={{"
+                + ", ".join(
+                    f"{column!r}: {str(value[column].dtype)!r}" for column in value.columns
                 )
+                + "}"
             )
 
-        return observations
+        return lines
 
-    def _collect_artifact_observations(self) -> list[ArtifactObservation]:
+    def _summarize_published_artifacts(self) -> list[str]:
         """Summarize published artifacts from this execution."""
 
-        observations: list[ArtifactObservation] = []
+        lines: list[str] = []
         for event in self.pending_events:
             if event.kind != "artifact":
                 continue
 
-            observations.append(
-                ArtifactObservation(
-                    artifact_id=str(event.data["id"]),
-                    artifact_kind=event.data["kind"],
-                    title=str(event.data["title"]),
-                )
+            lines.append(
+                f"- published artifact {event.data['id']}: "
+                f"{event.data['kind']} '{event.data['title']}'"
             )
 
-        return observations
+        return lines
 
 
 @dataclass

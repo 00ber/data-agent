@@ -2,10 +2,10 @@ import pandas as pd
 import pytest
 from pydantic import BaseModel
 
-from agent.agent import Agent, CodeStep, FinalResponseBlock, FinalResponseReview
-from agent.answer_blocks import MarkdownAnswerBlock
+from agent.agent import Agent, CodeStep
 from agent.environment import Environment
 from agent.memory import Memory
+from agent.response import FinalResponse, FinalResponseReview, ResponseSection
 from agent.sandbox import ExecutionSandbox
 from agent.tools import Tools
 
@@ -24,6 +24,18 @@ class FakeLLM:
         expected_model, response = next(self._responses)
         assert response_model is expected_model
         return response
+
+
+def markdown_response(text: str) -> FinalResponse:
+    return FinalResponse(
+        sections=[
+            ResponseSection(
+                kind="markdown",
+                markdown=text,
+                artifact_id=None,
+            )
+        ]
+    )
 
 
 def make_agent(
@@ -73,13 +85,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="done",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("done"),
                     ),
                 ),
             ]
@@ -118,13 +124,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="done",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("done"),
                     ),
                 ),
             ]
@@ -163,13 +163,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="done",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("done"),
                     ),
                 ),
             ]
@@ -181,7 +175,7 @@ class TestAgent:
         second_call = llm.calls[1][1]
         assert any(
             message["role"] == "assistant"
-            and "Observations:" in message["content"]
+            and "Step summary:" in message["content"]
             and "joined" in message["content"]
             and "region_x" in message["content"]
             and "region_y" in message["content"]
@@ -205,13 +199,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="fixed",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("fixed"),
                     ),
                 ),
             ]
@@ -273,7 +261,7 @@ class TestAgent:
         assert len(llm.calls) == 2
 
     @pytest.mark.asyncio
-    async def test_run_records_memory_and_final_answer(self):
+    async def test_run_records_conversation_memory(self):
         llm = FakeLLM(
             [
                 (
@@ -289,13 +277,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="West wins",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("West wins"),
                     ),
                 ),
             ]
@@ -309,17 +291,6 @@ class TestAgent:
             {"role": "user", "content": "Who wins?"},
             {"role": "assistant", "content": "West wins"},
         ]
-        assert memory.final_answers == [[MarkdownAnswerBlock(content="West wins")]]
-        assert memory.step_history == [
-            memory.step_history[0],
-        ]
-        assert memory.step_history[0].plan == "Inspect and answer"
-        assert (
-            memory.step_history[0].code
-            == 'conclude_analysis("West wins.")'
-        )
-        assert memory.step_history[0].output is None
-        assert memory.step_history[0].is_error is False
 
     @pytest.mark.asyncio
     async def test_reuses_memory_and_environment_across_turns(self):
@@ -337,13 +308,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="Saved total.",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("Saved total."),
                     ),
                 ),
                 (
@@ -358,13 +323,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="7",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("7"),
                     ),
                 ),
             ]
@@ -407,7 +366,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="needs_more_analysis",
                         critique="State which region leads revenue and by how much.",
-                        blocks=[],
+                        response=None,
                     ),
                 ),
                 (
@@ -422,13 +381,7 @@ class TestAgent:
                     FinalResponseReview(
                         status="approved",
                         critique=None,
-                        blocks=[
-                            FinalResponseBlock(
-                                type="markdown",
-                                content="West leads revenue.",
-                                artifact_id=None,
-                            )
-                        ],
+                        response=markdown_response("West leads revenue."),
                     ),
                 ),
             ]

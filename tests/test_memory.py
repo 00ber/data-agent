@@ -1,43 +1,13 @@
-from dataclasses import FrozenInstanceError
-
 import pytest
 
-from agent.answer_blocks import ArtifactAnswerBlock, MarkdownAnswerBlock
-from agent.memory import Memory, StepRecord
-
-
-class TestStepRecord:
-    def test_stores_step_fields(self):
-        record = StepRecord(
-            plan="Aggregate revenue by region",
-            code="grouped = ...",
-            output="West leads revenue.",
-            is_error=False,
-        )
-
-        assert record.plan == "Aggregate revenue by region"
-        assert record.code == "grouped = ..."
-        assert record.output == "West leads revenue."
-        assert record.is_error is False
-
-    def test_is_immutable(self):
-        record = StepRecord(
-            plan="Inspect data",
-            code="print(df.head())",
-            output="OK",
-            is_error=False,
-        )
-
-        with pytest.raises(FrozenInstanceError):
-            record.plan = "Mutated"
+from agent.memory import Memory
+from agent.response import FinalResponse, ResponseSection
 
 
 class TestMemory:
     def test_starts_empty(self):
         memory = Memory()
 
-        assert memory.step_history == []
-        assert memory.final_answers == []
         assert memory.conversation_messages() == []
 
     def test_records_user_turn_as_conversation_message(self):
@@ -55,71 +25,25 @@ class TestMemory:
         with pytest.raises(ValueError, match="User message must be a non-empty string."):
             memory.record_user_turn("   ")
 
-    def test_records_step_in_step_history(self):
-        memory = Memory()
-
-        record = memory.record_step(
-            plan="Inspect the sales table",
-            code="print(sales.head())",
-            output="Printed five rows.",
-        )
-
-        assert record == StepRecord(
-            plan="Inspect the sales table",
-            code="print(sales.head())",
-            output="Printed five rows.",
-            is_error=False,
-        )
-        assert memory.step_history == [record]
-
-    def test_records_error_step(self):
-        memory = Memory()
-
-        record = memory.record_step(
-            plan="Divide by zero",
-            code="1 / 0",
-            output="ZeroDivisionError: division by zero",
-            is_error=True,
-        )
-
-        assert record.is_error is True
-        assert "ZeroDivisionError" in record.output
-
-    def test_rejects_blank_step_plan(self):
-        memory = Memory()
-
-        with pytest.raises(ValueError, match="Step plan must be a non-empty string."):
-            memory.record_step(plan=" ", code="print(1)")
-
-    def test_rejects_blank_step_code(self):
-        memory = Memory()
-
-        with pytest.raises(ValueError, match="Step code must be a non-empty string."):
-            memory.record_step(plan="Inspect", code=" ")
-
-    def test_step_history_does_not_leak_into_conversation_messages(self):
+    def test_records_assistant_response_as_assistant_message(self):
         memory = Memory()
 
         memory.record_user_turn("What drives revenue?")
-        memory.record_step(
-            plan="Inspect revenue",
-            code="print(revenue.sum())",
-            output="42",
-        )
-
-        assert memory.conversation_messages() == [
-            {"role": "user", "content": "What drives revenue?"},
-        ]
-
-    def test_records_final_answer_as_assistant_message(self):
-        memory = Memory()
-
-        memory.record_user_turn("What drives revenue?")
-        memory.record_final_answer(
-            [
-                MarkdownAnswerBlock(content="West region leads revenue."),
-                ArtifactAnswerBlock(artifact_id="artifact_1"),
-            ],
+        memory.record_assistant_response(
+            FinalResponse(
+                sections=[
+                    ResponseSection(
+                        kind="markdown",
+                        markdown="West region leads revenue.",
+                        artifact_id=None,
+                    ),
+                    ResponseSection(
+                        kind="artifact",
+                        markdown=None,
+                        artifact_id="artifact_1",
+                    ),
+                ]
+            ),
             artifact_titles={"artifact_1": "Revenue by region"},
         )
 
@@ -130,23 +54,6 @@ class TestMemory:
                 "content": "West region leads revenue.\n\n[Artifact: Revenue by region]",
             },
         ]
-
-    def test_tracks_final_answers_separately(self):
-        memory = Memory()
-
-        memory.record_final_answer(
-            [MarkdownAnswerBlock(content="West region leads revenue.")]
-        )
-
-        assert memory.final_answers == [
-            [MarkdownAnswerBlock(content="West region leads revenue.")]
-        ]
-
-    def test_rejects_empty_final_answer_blocks(self):
-        memory = Memory()
-
-        with pytest.raises(ValueError, match="Final answer must contain at least one block."):
-            memory.record_final_answer([])
 
     def test_conversation_messages_returns_a_copy(self):
         memory = Memory()

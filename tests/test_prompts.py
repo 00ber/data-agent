@@ -1,25 +1,21 @@
-from agent.answer_blocks import MarkdownAnswerBlock
-from agent.agent import FinalResponseBlock, FinalResponseReview
+from agent.agent import CodeStep
 from agent.events import Event
 from agent.environment import (
     AnalysisHandoff,
     Artifact,
-    ArtifactObservation,
-    DataFrameObservation,
     Environment,
     ExecutionResult,
-    TextOutputObservation,
 )
 from agent.memory import Memory
 from agent.prompts import (
     build_conversation_messages,
     build_finalization_messages,
-    build_step_feedback,
     build_step_messages,
     build_system_prompt,
     describe_tool,
     describe_tools,
 )
+from agent.response import FinalResponse, FinalResponseReview, ResponseSection
 from agent.sandbox import ExecutionSandbox
 from agent.tools import Tools
 
@@ -175,7 +171,17 @@ class TestBuildConversationMessages:
     def test_uses_memory_conversation_messages(self):
         memory = Memory()
         memory.record_user_turn("Hello")
-        memory.record_final_answer([MarkdownAnswerBlock(content="Hi")])
+        memory.record_assistant_response(
+            FinalResponse(
+                sections=[
+                    ResponseSection(
+                        kind="markdown",
+                        markdown="Hi",
+                        artifact_id=None,
+                    )
+                ]
+            )
+        )
 
         messages = build_conversation_messages("System prompt", memory)
 
@@ -186,17 +192,19 @@ class TestBuildConversationMessages:
         ]
 
 
-class TestBuildStepFeedback:
+class TestBuildStepMessages:
     def test_error_feedback_requests_fix(self):
         result = ExecutionResult(
             events=[],
             output="ZeroDivisionError: division by zero",
             is_error=True,
             analysis_handoff=None,
-            observations=[],
+            step_summary=None,
         )
+        code_step = CodeStep(plan="Try bad code", code="1 / 0")
 
-        feedback = build_step_feedback(result)
+        messages = build_step_messages(code_step, result)
+        feedback = messages[1]["content"]
 
         assert "Error:" in feedback
         assert "Fix the issue and try again." in feedback
@@ -211,16 +219,12 @@ class TestBuildStepFeedback:
             output="OK",
             is_error=False,
             analysis_handoff=None,
-            observations=[
-                ArtifactObservation(
-                    artifact_id="artifact_1",
-                    artifact_kind="table",
-                    title="Preview",
-                )
-            ],
+            step_summary="Step summary:\n- published artifact artifact_1: table 'Preview'",
         )
+        code_step = CodeStep(plan="Publish preview", code="publish_table(...)")
 
-        feedback = build_step_feedback(result)
+        messages = build_step_messages(code_step, result)
+        feedback = messages[1]["content"]
 
         assert "artifact(s) visible to the user" in feedback
         assert "call conclude_analysis()" in feedback
@@ -232,54 +236,42 @@ class TestBuildStepFeedback:
             output="OK",
             is_error=False,
             analysis_handoff=None,
-            observations=[
-                DataFrameObservation(
-                    name="joined",
-                    rows=10,
-                    columns=["region_x", "region_y", "total"],
-                    dtypes={
-                        "region_x": "object",
-                        "region_y": "object",
-                        "total": "float64",
-                    },
-                )
-            ],
+            step_summary=(
+                "Step summary:\n"
+                "- dataframe joined: 10 rows; "
+                "columns=['region_x', 'region_y', 'total']; "
+                "dtypes={'region_x': 'object', 'region_y': 'object', 'total': 'float64'}"
+            ),
         )
+        code_step = CodeStep(plan="Inspect join", code="joined = join(...)")
 
-        feedback = build_step_feedback(result)
+        messages = build_step_messages(code_step, result)
+        feedback = messages[1]["content"]
 
         assert "Step succeeded." in feedback
         assert "call conclude_analysis()" in feedback
         assert "joined" in feedback
         assert "region_y" in feedback
 
-
-class TestBuildStepMessages:
-    def test_includes_structured_observations_in_assistant_message(self):
+    def test_includes_step_summary_in_assistant_message(self):
         result = ExecutionResult(
             events=[],
             output="5",
             is_error=False,
             analysis_handoff=None,
-            observations=[
-                DataFrameObservation(
-                    name="joined",
-                    rows=12,
-                    columns=["segment", "region_y", "total"],
-                    dtypes={
-                        "segment": "object",
-                        "region_y": "object",
-                        "total": "float64",
-                    },
-                ),
-                TextOutputObservation(text="5"),
-            ],
+            step_summary=(
+                "Step summary:\n"
+                "- dataframe joined: 12 rows; "
+                "columns=['segment', 'region_y', 'total']; "
+                "dtypes={'segment': 'object', 'region_y': 'object', 'total': 'float64'}\n"
+                "- text output: 5"
+            ),
         )
-        code_step = type("CodeStep", (), {"plan": "Inspect the join", "code": "print(5)"})()
+        code_step = CodeStep(plan="Inspect the join", code="print(5)")
 
         messages = build_step_messages(code_step, result)
 
-        assert "Observations:" in messages[0]["content"]
+        assert "Step summary:" in messages[0]["content"]
         assert "joined" in messages[0]["content"]
         assert "region_y" in messages[0]["content"]
         assert "5" in messages[0]["content"]
@@ -326,21 +318,25 @@ class TestBuildFinalizationMessages:
         review = FinalResponseReview(
             status="approved",
             critique=None,
-            blocks=[
-                FinalResponseBlock(
-                    type="markdown",
-                    content="done",
-                    artifact_id=None,
-                )
-            ],
+            response=FinalResponse(
+                sections=[
+                    ResponseSection(
+                        kind="markdown",
+                        markdown="done",
+                        artifact_id=None,
+                    )
+                ]
+            ),
         )
 
         assert review.status == "approved"
         assert review.critique is None
-        assert review.blocks == [
-            FinalResponseBlock(
-                type="markdown",
-                content="done",
-                artifact_id=None,
-            )
-        ]
+        assert review.response == FinalResponse(
+            sections=[
+                ResponseSection(
+                    kind="markdown",
+                    markdown="done",
+                    artifact_id=None,
+                )
+            ]
+        )

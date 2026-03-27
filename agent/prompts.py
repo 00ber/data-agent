@@ -7,11 +7,8 @@ from typing import TYPE_CHECKING
 
 from agent.environment import (
     AnalysisHandoff,
-    ArtifactObservation,
-    DataFrameObservation,
     Environment,
     ExecutionResult,
-    TextOutputObservation,
 )
 from agent.memory import Memory
 from agent.tools import Tools
@@ -23,7 +20,7 @@ SYSTEM_INSTRUCTIONS = """\
 You are an analytics agent. Answer questions about the loaded data by writing Python code.
 
 Use the available actions when they fit the task. Work like a notebook user:
-perform one meaningful set of operations per step, inspect uncertain outputs before
+perform one meaningful operation per step, inspect uncertain outputs before
 relying on them (for example. inspecting the schema of a dataframe), 
 and prefer assigning new variables instead of mutating prior
 ones in place. Use schema(), head(), and sample() for intermediate inspection.
@@ -119,49 +116,6 @@ def build_conversation_messages(
     ]
 
 
-def build_step_feedback(result: ExecutionResult) -> str:
-    """Build the follow-up user message after one execution step."""
-
-    if result.analysis_handoff is not None:
-        raise ValueError("Step feedback should not be built for an analysis handoff.")
-
-    if result.is_error:
-        return (
-            f"Error: {result.output}\n\n"
-            "Fix the issue and try again. Change the code or approach instead of "
-            "repeating the same failing step."
-        )
-
-    artifact_count = sum(1 for event in result.events if event.kind == "artifact")
-    observation_summary = _format_observations(result.observations)
-    if artifact_count > 0:
-        return (
-            f"Step produced {artifact_count} artifact(s) visible to the user. "
-            + ("\n\n" + observation_summary if observation_summary else "")
-            + "\n\n"
-            "If you have displayed all the results needed to answer the question, "
-            "call conclude_analysis() with a stand-alone handoff that states the "
-            "actual findings directly and references any supporting artifacts inline. "
-            "If the question asks about a relationship or likelihood, make sure you "
-            "computed and interpreted the relevant rate or comparison before ending. "
-            "Otherwise, continue."
-        )
-
-    if observation_summary:
-        return (
-            "Step succeeded.\n\n"
-            + observation_summary
-            + "\n\n"
-            "Continue with the next step, or call conclude_analysis() "
-            "if you have enough to answer the question."
-        )
-
-    return (
-        "Step succeeded. Continue with the next step, or call conclude_analysis() "
-        "if you have enough to answer the question."
-    )
-
-
 def build_step_messages(
     code_step: CodeStep,
     result: ExecutionResult,
@@ -178,43 +132,59 @@ def build_step_messages(
     if not result.is_error:
         assistant_lines.append(f"Result: {result.output}")
 
-    observation_summary = _format_observations(result.observations)
-    if observation_summary:
-        assistant_lines.append(observation_summary)
+    if result.step_summary is not None:
+        assistant_lines.append(result.step_summary)
 
     return [
         {"role": "assistant", "content": "\n".join(assistant_lines)},
-        {"role": "user", "content": build_step_feedback(result)},
+        {"role": "user", "content": _build_step_follow_up(result)},
     ]
 
 
-def _format_observations(
-    observations: list[DataFrameObservation | ArtifactObservation | TextOutputObservation],
-) -> str:
-    """Render compact structured observations into one short prompt block."""
+def _build_step_follow_up(result: ExecutionResult) -> str:
+    """Build the next user instruction after one execution step."""
 
-    if len(observations) == 0:
-        return ""
+    if result.analysis_handoff is not None:
+        raise ValueError("Step follow-up should not be built for an analysis handoff.")
 
-    lines: list[str] = []
-    for observation in observations:
-        if isinstance(observation, DataFrameObservation):
-            lines.append(
-                f"- dataframe {observation.name}: {observation.rows} rows; "
-                f"columns={observation.columns}; dtypes={observation.dtypes}"
+    if result.is_error:
+        return (
+            f"Error: {result.output}\n\n"
+            "Fix the issue and try again. Change the code or approach instead of "
+            "repeating the same failing step."
+        )
+
+    artifact_count = sum(1 for event in result.events if event.kind == "artifact")
+    if artifact_count > 0:
+        return (
+            f"Step produced {artifact_count} artifact(s) visible to the user."
+            + (
+                "\n\n" + result.step_summary
+                if result.step_summary is not None
+                else ""
             )
-            continue
+            + "\n\n"
+            "If you have displayed all the results needed to answer the question, "
+            "call conclude_analysis() with a stand-alone handoff that states the "
+            "actual findings directly and references any supporting artifacts inline. "
+            "If the question asks about a relationship or likelihood, make sure you "
+            "computed and interpreted the relevant rate or comparison before ending. "
+            "Otherwise, continue."
+        )
 
-        if isinstance(observation, ArtifactObservation):
-            lines.append(
-                f"- published artifact {observation.artifact_id}: "
-                f"{observation.artifact_kind} '{observation.title}'"
-            )
-            continue
+    if result.step_summary is not None:
+        return (
+            "Step succeeded.\n\n"
+            + result.step_summary
+            + "\n\n"
+            "Continue with the next step, or call conclude_analysis() "
+            "if you have enough to answer the question."
+        )
 
-        lines.append(f"- text output: {observation.text}")
-
-    return "Observations:\n" + "\n".join(lines)
+    return (
+        "Step succeeded. Continue with the next step, or call conclude_analysis() "
+        "if you have enough to answer the question."
+    )
 
 
 def build_finalization_messages(
@@ -240,14 +210,13 @@ def build_finalization_messages(
             (
                 "Review instructions:\n"
                 "- If the handoff is sufficient, return status='approved' and "
-                "ordered answer blocks.\n"
+                "a final response with ordered sections.\n"
                 "- If more work is needed, return status='needs_more_analysis' "
                 "with a concrete critique.\n"
-                "- For approved responses, each block must include type, content, "
-                "and artifact_id.\n"
-                '- Use {"type": "markdown", "content": "...", "artifact_id": null} '
-                "for markdown.\n"
-                '- Use {"type": "artifact", "content": null, "artifact_id": "..."} '
+                "- For approved responses, include response.sections in the final reading order.\n"
+                '- Use {"kind": "markdown", "markdown": "...", "artifact_id": null} '
+                "for narrative sections.\n"
+                '- Use {"kind": "artifact", "markdown": null, "artifact_id": "..."} '
                 "for artifact references."
             ),
         ]

@@ -4,26 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from agent.answer_blocks import AnswerBlock, answer_blocks_to_conversation_text
-from agent.validation import require_optional_text, require_text
-
-
-@dataclass(frozen=True)
-class StepRecord:
-    """One recorded execution step from the agent loop."""
-
-    plan: str
-    code: str
-    output: str | None
-    is_error: bool
+from agent.response import FinalResponse, response_to_conversation_text
+from agent.validation import require_text
 
 
 @dataclass
 class Memory:
-    """Explicit conversation and step memory for one agent runtime."""
+    """Conversation-only memory for one agent runtime."""
 
-    step_history: list[StepRecord] = field(default_factory=list)
-    final_answers: list[list[AnswerBlock]] = field(default_factory=list)
     _conversation_history: list[dict[str, str]] = field(default_factory=list)
 
     def record_user_turn(self, message: str) -> None:
@@ -34,46 +22,19 @@ class Memory:
             {"role": "user", "content": normalized_message}
         )
 
-    def record_step(
+    def record_assistant_response(
         self,
-        *,
-        plan: str,
-        code: str,
-        output: str | None = None,
-        is_error: bool = False,
-    ) -> StepRecord:
-        """Record one execution step without mutating conversation turns."""
-
-        normalized_plan = require_text(plan, "Step plan")
-        normalized_code = require_text(code, "Step code")
-        normalized_output = require_optional_text(output, "Step output")
-
-        step_record = StepRecord(
-            plan=normalized_plan,
-            code=normalized_code,
-            output=normalized_output,
-            is_error=is_error,
-        )
-        self.step_history.append(step_record)
-        return step_record
-
-    def record_final_answer(
-        self,
-        blocks: list[AnswerBlock],
+        response: FinalResponse,
         *,
         artifact_titles: dict[str, str] | None = None,
     ) -> None:
-        """Record one structured final answer as both a fact and an assistant turn."""
+        """Record one final response as an assistant conversation turn."""
 
-        if len(blocks) == 0:
-            raise ValueError("Final answer must contain at least one block.")
-
-        self.final_answers.append(blocks)
         self._conversation_history.append(
             {
                 "role": "assistant",
-                "content": answer_blocks_to_conversation_text(
-                    blocks,
+                "content": response_to_conversation_text(
+                    response,
                     artifact_titles=artifact_titles,
                 ),
             }
