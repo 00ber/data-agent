@@ -117,7 +117,7 @@ If you do not already have an OpenAI API key, ask your Build Fellow for help get
 ### 2. Clone the repo
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/00ber/data-agent.git
 cd data-agent
 ```
 
